@@ -88,7 +88,7 @@ export default function Landing() {
             <p className="text-neutral-500 mb-6">For individual Oracle professionals.</p>
             <div className="mb-6">
               <span className="text-4xl font-extrabold text-neutral-900">₹999</span>
-              <span className="text-neutral-500">/month</span>
+              <span className="text-neutral-500">/year</span>
             </div>
             <ul className="space-y-4 mb-8 flex-1">
               <li className="flex items-start"><CheckCircle className="h-5 w-5 text-emerald-500 mr-2 shrink-0" /><span className="text-neutral-600">Priority project matching</span></li>
@@ -107,7 +107,7 @@ export default function Landing() {
             <p className="text-emerald-100 mb-6">For agencies and startup teams.</p>
             <div className="mb-6">
               <span className="text-4xl font-extrabold">₹4999</span>
-              <span className="text-emerald-200">/month</span>
+              <span className="text-emerald-200">/year</span>
             </div>
             <ul className="space-y-4 mb-8 flex-1">
               <li className="flex items-start"><CheckCircle className="h-5 w-5 text-emerald-300 mr-2 shrink-0" /><span className="text-emerald-50">Top priority for large projects</span></li>

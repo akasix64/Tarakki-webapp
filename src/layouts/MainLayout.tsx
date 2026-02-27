@@ -71,7 +71,7 @@ export default function MainLayout() {
       <footer className="bg-white border-t border-neutral-200 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <p className="text-center text-sm text-neutral-500">
-            &copy; {new Date().getFullYear()} Tarakki by egisedge. All rights reserved.
+            &copy; {new Date().getFullYear()} Tarakki. All rights reserved.
           </p>
         </div>
       </footer>
