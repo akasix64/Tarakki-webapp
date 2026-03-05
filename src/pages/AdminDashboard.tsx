@@ -1,20 +1,26 @@
-import { useEffect, useState, FormEvent } from 'react';
+import React, { useEffect, useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
   Plus, Users, Briefcase, Activity, X, Check, Trash2,
   LayoutDashboard, FolderOpen, ChevronRight, Bell, Settings,
-  UserCircle, Menu, TrendingUp, ShieldCheck, Phone, CreditCard, Mail
+  UserCircle, Menu, TrendingUp, ShieldCheck, Phone, CreditCard, Mail,
+  MapPin, Globe, FileText, Building2, Calendar, Star, Hash
 } from 'lucide-react';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'projects' | 'users' | 'applications' | 'profile'>('overview');
   const [stats, setStats] = useState({ contractors: 0, startups: 0, projects: 0, applications: 0 });
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedApplication, setSelectedApplication] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [applications, setApplications] = useState<any[]>([]);
   const [applicationsLoading, setApplicationsLoading] = useState(false);
   const [adminProfile, setAdminProfile] = useState<any>(null);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notifRef = React.useRef<HTMLDivElement>(null);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({ full_name: '', phone: '' });
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
@@ -61,7 +67,7 @@ export default function AdminDashboard() {
       let profiles = null;
       let projects = null;
       if (app.user_id) {
-        const { data: prof } = await supabase.from('profiles').select('full_name, email, role').eq('id', app.user_id).maybeSingle();
+        const { data: prof } = await supabase.from('profiles').select('full_name, email, role, phone, location, website, about, experience_years, skills, resume_url, industry, company_size, founded_year, gst_number, avatar_url').eq('id', app.user_id).maybeSingle();
         if (prof) profiles = prof;
       }
       if (app.project_id) {
@@ -76,8 +82,22 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
+    const fetchNotifications = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false });
+      console.log('[Admin] Notifications fetched:', data, 'Error:', error);
+      if (data) setNotifications(data);
+    };
+
     fetchData();
     fetchApplications();
+    fetchNotifications();
+
     // Fetch admin's own profile
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
@@ -96,13 +116,40 @@ export default function AdminDashboard() {
         });
       }
     });
+
     const ps = supabase.channel('profiles-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, fetchData).subscribe();
     const pj = supabase.channel('projects-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, fetchData).subscribe();
     const pa = supabase.channel('applications-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, fetchData).subscribe();
-    return () => { supabase.removeChannel(ps); supabase.removeChannel(pj); supabase.removeChannel(pa); };
+
+    let notifsChannel: any;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        notifsChannel = supabase.channel('admin-notifications')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${session.user.id}` }, () => {
+            // Re-fetch all notifications to ensure RLS is satisfied
+            fetchNotifications();
+          }).subscribe((status) => {
+            console.log('[Admin] Realtime subscription status:', status);
+          });
+      }
+    });
+
+    return () => {
+      supabase.removeChannel(ps);
+      supabase.removeChannel(pj);
+      supabase.removeChannel(pa);
+      if (notifsChannel) supabase.removeChannel(notifsChannel);
+    };
+  }, []);
+
+  // Close notification panel when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (notifRef.current && !notifRef.current.contains(e.target as Node)) setShowNotifications(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
   const handleCreateProject = async (e: FormEvent) => {
@@ -178,10 +225,60 @@ export default function AdminDashboard() {
             <button className="w-11 h-11 rounded-full bg-white/60 backdrop-blur-md flex items-center justify-center border border-white/40 shadow-sm text-slate-500 hover:text-black transition-all">
               <Settings className="w-4 h-4" />
             </button>
-            <button className="w-11 h-11 rounded-full bg-white/60 backdrop-blur-md flex items-center justify-center border border-white/40 shadow-sm text-slate-500 hover:text-black transition-all relative">
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-[#ffdd66] border border-white"></span>
-            </button>
+            <div className="relative" ref={notifRef}>
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="w-11 h-11 rounded-full bg-white/60 backdrop-blur-md flex items-center justify-center border border-white/40 shadow-sm text-slate-500 hover:text-black transition-all relative"
+              >
+                <Bell className="w-4 h-4" />
+                {notifications.filter(n => !n.is_read).length > 0 && (
+                  <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-[#ffdd66] border border-white"></span>
+                )}
+              </button>
+
+              {showNotifications && (
+                <div className="absolute right-0 top-14 w-80 bg-white rounded-3xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-[#1a1a1a]">Notifications</h3>
+                    {notifications.some(n => !n.is_read) && (
+                      <button onClick={async () => {
+                        const { data: { session } } = await supabase.auth.getSession();
+                        if (session) {
+                          await supabase.from('notifications').update({ is_read: true }).eq('user_id', session.user.id);
+                          setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+                        }
+                      }} className="text-[10px] font-bold text-slate-400 hover:text-[#1a1a1a] uppercase tracking-widest">Mark all read</button>
+                    )}
+                  </div>
+                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
+                    {notifications.length === 0 ? (
+                      <div className="py-10 text-center text-sm text-slate-400">No notifications yet</div>
+                    ) : notifications.map(n => (
+                      <div key={n.id} className={`px-5 py-4 flex gap-3 items-start cursor-pointer hover:bg-slate-50 transition-colors ${!n.is_read ? 'bg-[#fffbea]' : ''}`}
+                        onClick={async () => {
+                          if (!n.is_read) {
+                            await supabase.from('notifications').update({ is_read: true }).eq('id', n.id);
+                            setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+                          }
+                          if (n.type === 'application') {
+                            setActiveTab('applications');
+                            setShowNotifications(false);
+                          }
+                        }}>
+                        <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${!n.is_read ? 'bg-[#ffdd66]' : 'bg-transparent'}`} />
+                        <div>
+                          <p className={`text-sm ${!n.is_read ? 'text-[#1a1a1a] font-bold' : 'text-slate-600 font-medium'}`}>{n.title}</p>
+                          <p className="text-xs text-slate-500 mt-1 leading-relaxed">{n.message}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">
+                            {new Date(n.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -271,7 +368,7 @@ export default function AdminDashboard() {
 
                     <div className="flex-1 overflow-y-auto pr-2 space-y-3 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                       {users.slice(0, 4).map((user) => (
-                        <div key={user.id} className="flex gap-4 group cursor-pointer hover:bg-white/5 rounded-2xl p-3 -mx-2 transition-colors border border-transparent hover:border-white/10">
+                        <div key={user.id} onClick={() => setSelectedUser(user)} className="flex gap-4 group cursor-pointer hover:bg-white/5 rounded-2xl p-3 -mx-2 transition-colors border border-transparent hover:border-white/10">
                           {avatar(user.full_name, user.email, true)}
                           <div className="flex-1 min-w-0 flex flex-col justify-center">
                             <h4 className="text-sm font-semibold text-white truncate group-hover:text-[#ffdd66] transition-colors">{user.full_name || user.email}</h4>
@@ -394,12 +491,12 @@ export default function AdminDashboard() {
                     </thead>
                     <tbody className="divide-y divide-white/5">
                       {users.map(user => (
-                        <tr key={user.id} className="hover:bg-white/5 transition-colors">
+                        <tr key={user.id} onClick={() => setSelectedUser(user)} className="hover:bg-white/5 transition-colors cursor-pointer group">
                           <td className="px-6 md:px-8 py-5">
                             <div className="flex items-center gap-4">
                               {avatar(user.full_name, user.email, true)}
                               <div className="min-w-0">
-                                <p className="text-sm font-bold text-white truncate">{user.full_name || 'Anonymous User'}</p>
+                                <p className="text-sm font-bold text-white truncate group-hover:text-[#ffdd66] transition-colors">{user.full_name || 'Anonymous User'}</p>
                                 <p className="text-[11px] text-white/40 truncate mt-0.5">{user.email}</p>
                               </div>
                             </div>
@@ -468,7 +565,7 @@ export default function AdminDashboard() {
                       </thead>
                       <tbody className="divide-y divide-white/5">
                         {applications.map(app => (
-                          <tr key={app.id} className="hover:bg-white/5 transition-colors group">
+                          <tr key={app.id} onClick={() => setSelectedApplication(app)} className="hover:bg-white/5 transition-colors group cursor-pointer">
                             <td className="px-6 md:px-8 py-5">
                               <div className="flex items-center gap-3">
                                 <div className="w-9 h-9 rounded-full bg-[#ffdd66]/20 border border-[#ffdd66]/30 flex items-center justify-center text-sm font-bold text-[#ffdd66] shrink-0">
@@ -747,6 +844,317 @@ export default function AdminDashboard() {
               <button type="submit" form="project-form" className="px-8 py-3 text-sm font-bold text-[#1a1a1a] bg-[#ffdd66] rounded-full hover:bg-[#ffe17a] hover:scale-105 active:scale-95 transition-all shadow-md">
                 Post Project
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── APPLICATION DETAIL DIALOG ────────────────────────────────────── */}
+      {selectedApplication && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedApplication(null)}>
+          <div className="relative w-full max-w-xl bg-white rounded-[2rem] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+
+            {/* Close */}
+            <button onClick={() => setSelectedApplication(null)} className="absolute top-5 right-5 z-10 w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
+              <X className="w-4 h-4 text-slate-600" />
+            </button>
+
+            {/* Header */}
+            <div className="bg-[#1a1a1a] px-8 pt-10 pb-7 relative overflow-hidden">
+              <div className="absolute -top-20 -right-20 w-60 h-60 bg-white/5 rounded-full blur-3xl" />
+              <div className="absolute -bottom-20 -left-20 w-60 h-60 bg-[#ffdd66]/10 rounded-full blur-3xl" />
+              <div className="relative z-10">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1">Application for</p>
+                <h2 className="text-2xl font-bold text-white leading-tight">{selectedApplication.projects?.title || 'Unknown Project'}</h2>
+                <div className="flex items-center gap-3 mt-4">
+                  <div className="w-10 h-10 rounded-xl bg-[#ffdd66]/10 border border-[#ffdd66]/20 flex items-center justify-center text-sm font-bold text-[#ffdd66]">
+                    {(selectedApplication.profiles?.full_name || selectedApplication.profiles?.email || '?')[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white">{selectedApplication.profiles?.full_name || 'Unknown'}</p>
+                    <p className="text-[11px] text-white/50 uppercase tracking-widest">{selectedApplication.profiles?.role}</p>
+                  </div>
+                  <span className={`ml-auto text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${selectedApplication.status === 'approved' ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                    : selectedApplication.status === 'rejected' ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                      : 'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20'
+                    }`}>{selectedApplication.status || 'Pending'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="max-h-[55vh] overflow-y-auto">
+              <div className="px-8 py-6 space-y-4">
+
+                {/* Application fields */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Application Details</p>
+                  <div className="space-y-3">
+                    {selectedApplication.cover_letter && (
+                      <div className="p-4 bg-slate-50 rounded-2xl">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Cover Letter</p>
+                        <p className="text-sm text-[#1a1a1a] leading-relaxed whitespace-pre-wrap">{selectedApplication.cover_letter}</p>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      {selectedApplication.expected_rate && (
+                        <div className="p-4 bg-slate-50 rounded-2xl">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Expected Rate</p>
+                          <p className="text-sm font-semibold text-[#1a1a1a]">₹{selectedApplication.expected_rate}</p>
+                        </div>
+                      )}
+                      {selectedApplication.availability && (
+                        <div className="p-4 bg-slate-50 rounded-2xl">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Availability</p>
+                          <p className="text-sm font-semibold text-[#1a1a1a]">{selectedApplication.availability}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Applicant profile snapshot */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Applicant Profile</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {selectedApplication.profiles?.phone && (
+                      <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl">
+                        <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <div><p className="text-[10px] text-slate-400">Phone</p><p className="text-xs font-semibold text-[#1a1a1a]">{selectedApplication.profiles.phone}</p></div>
+                      </div>
+                    )}
+                    {selectedApplication.profiles?.location && (
+                      <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <div><p className="text-[10px] text-slate-400">Location</p><p className="text-xs font-semibold text-[#1a1a1a]">{selectedApplication.profiles.location}</p></div>
+                      </div>
+                    )}
+                    {selectedApplication.profiles?.experience_years && (
+                      <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl">
+                        <Star className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <div><p className="text-[10px] text-slate-400">Experience</p><p className="text-xs font-semibold text-[#1a1a1a]">{selectedApplication.profiles.experience_years} yrs</p></div>
+                      </div>
+                    )}
+                    {selectedApplication.profiles?.website && (
+                      <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl col-span-2">
+                        <Globe className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <div className="min-w-0"><p className="text-[10px] text-slate-400">Website</p>
+                          <a href={selectedApplication.profiles.website} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-blue-500 hover:underline truncate block">{selectedApplication.profiles.website}</a>
+                        </div>
+                      </div>
+                    )}
+                    {selectedApplication.profiles?.skills?.length > 0 && (
+                      <div className="col-span-2 p-3 bg-slate-50 rounded-xl">
+                        <p className="text-[10px] text-slate-400 mb-1.5">Skills</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {selectedApplication.profiles.skills.map((s: string) => (
+                            <span key={s} className="px-2.5 py-1 text-[10px] font-bold bg-[#1a1a1a] text-white rounded-full">{s}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {selectedApplication.profiles?.resume_url && (
+                      <div className="col-span-2 p-3 bg-slate-50 rounded-xl">
+                        <p className="text-[10px] text-slate-400 mb-1">Resume / Documents</p>
+                        <a href={selectedApplication.profiles.resume_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs font-semibold text-blue-500 hover:underline">
+                          <FileText className="w-3.5 h-3.5" /> View Document
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Date */}
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Applied on</span>
+                  <span className="text-xs font-semibold text-slate-600">
+                    {selectedApplication.created_at ? new Date(selectedApplication.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'}
+                  </span>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Footer — approve / reject */}
+            {(!selectedApplication.status || selectedApplication.status === 'pending') && (
+              <div className="px-8 py-5 border-t border-slate-100 flex gap-3">
+                <button
+                  onClick={async () => {
+                    setApplications(prev => prev.map(a => a.id === selectedApplication.id ? { ...a, status: 'approved' } : a));
+                    setSelectedApplication((prev: any) => ({ ...prev, status: 'approved' }));
+                    await supabase.from('applications').update({ status: 'approved' }).eq('id', selectedApplication.id);
+                    await supabase.from('notifications').insert({ user_id: selectedApplication.user_id, title: '🎉 Application Approved!', message: `Your application for "${selectedApplication.projects?.title || 'a project'}" has been approved.`, type: 'approved', is_read: false });
+                  }}
+                  className="flex-1 py-3 rounded-2xl bg-green-500/10 text-green-600 text-sm font-bold hover:bg-green-500/20 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Check className="w-4 h-4" /> Approve
+                </button>
+                <button
+                  onClick={async () => {
+                    setApplications(prev => prev.map(a => a.id === selectedApplication.id ? { ...a, status: 'rejected' } : a));
+                    setSelectedApplication((prev: any) => ({ ...prev, status: 'rejected' }));
+                    await supabase.from('applications').update({ status: 'rejected' }).eq('id', selectedApplication.id);
+                    await supabase.from('notifications').insert({ user_id: selectedApplication.user_id, title: '❌ Application Rejected', message: `Your application for "${selectedApplication.projects?.title || 'a project'}" has been rejected.`, type: 'rejected', is_read: false });
+                  }}
+                  className="flex-1 py-3 rounded-2xl bg-red-500/10 text-red-500 text-sm font-bold hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2"
+                >
+                  <X className="w-4 h-4" /> Reject
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {/* ── USER PROFILE DIALOG ───────────────────────────────────────────── */}
+      {selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedUser(null)}>
+          <div className="relative w-full max-w-lg bg-white rounded-[2rem] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+
+            {/* Close button */}
+            <button onClick={() => setSelectedUser(null)} className="absolute top-5 right-5 z-10 w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
+              <X className="w-4 h-4 text-slate-600" />
+            </button>
+
+            {/* Header / Avatar section */}
+            <div className="bg-[#1a1a1a] px-8 pt-10 pb-8 relative overflow-hidden">
+              <div className="absolute -top-20 -right-20 w-60 h-60 bg-white/5 rounded-full blur-3xl" />
+              <div className="absolute -bottom-20 -left-20 w-60 h-60 bg-[#ffdd66]/10 rounded-full blur-3xl" />
+              <div className="relative z-10 flex items-center gap-5">
+                {selectedUser.avatar_url ? (
+                  <img src={selectedUser.avatar_url} alt={selectedUser.full_name} className="w-20 h-20 rounded-2xl object-cover border-2 border-white/10 shadow-xl" />
+                ) : (
+                  <div className="w-20 h-20 rounded-2xl bg-[#ffdd66]/10 border border-[#ffdd66]/20 flex items-center justify-center shadow-xl">
+                    <span className="text-3xl font-light text-[#ffdd66]">{(selectedUser.full_name || selectedUser.email || '?')[0].toUpperCase()}</span>
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <h2 className="text-2xl font-bold text-white leading-tight truncate">{selectedUser.full_name || 'No Name'}</h2>
+                  <p className="text-white/50 text-sm mt-1 truncate">{selectedUser.email}</p>
+                  <span className={`inline-block mt-2 text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${selectedUser.role === 'startup' ? 'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20'
+                    : selectedUser.role === 'admin' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                      : 'bg-white/10 text-white/80 border-white/20'
+                    }`}>{selectedUser.role}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Body - scrollable */}
+            <div className="max-h-[60vh] overflow-y-auto">
+              <div className="px-8 py-6 space-y-5">
+
+                {/* General Info */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">General Information</p>
+                  <div className="grid grid-cols-1 gap-3">
+                    {selectedUser.phone && (
+                      <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl">
+                        <Phone className="w-4 h-4 text-slate-400 shrink-0" />
+                        <div><p className="text-[10px] text-slate-400 uppercase tracking-widest">Phone</p><p className="text-sm font-semibold text-[#1a1a1a]">{selectedUser.phone}</p></div>
+                      </div>
+                    )}
+                    {selectedUser.location && (
+                      <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl">
+                        <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                        <div><p className="text-[10px] text-slate-400 uppercase tracking-widest">Location</p><p className="text-sm font-semibold text-[#1a1a1a]">{selectedUser.location}</p></div>
+                      </div>
+                    )}
+                    {selectedUser.website && (
+                      <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl">
+                        <Globe className="w-4 h-4 text-slate-400 shrink-0" />
+                        <div><p className="text-[10px] text-slate-400 uppercase tracking-widest">Website / LinkedIn</p>
+                          <a href={selectedUser.website} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-blue-500 hover:underline truncate block">{selectedUser.website}</a>
+                        </div>
+                      </div>
+                    )}
+                    {(selectedUser.about || selectedUser.bio) && (
+                      <div className="p-4 bg-slate-50 rounded-2xl">
+                        <p className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">About</p>
+                        <p className="text-sm text-[#1a1a1a] leading-relaxed">{selectedUser.about || selectedUser.bio}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Contractor-specific */}
+                {selectedUser.role === 'contractor' && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Contractor Details</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {selectedUser.experience_years && (
+                        <div className="p-4 bg-slate-50 rounded-2xl">
+                          <p className="text-[10px] text-slate-400 uppercase tracking-widest">Experience</p>
+                          <p className="text-sm font-semibold text-[#1a1a1a] mt-0.5">{selectedUser.experience_years} yrs</p>
+                        </div>
+                      )}
+                      {selectedUser.skills?.length > 0 && (
+                        <div className="col-span-2 p-4 bg-slate-50 rounded-2xl">
+                          <p className="text-[10px] text-slate-400 uppercase tracking-widest mb-2">Skills</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {selectedUser.skills.map((s: string) => (
+                              <span key={s} className="px-3 py-1 text-xs font-bold bg-[#1a1a1a] text-white rounded-full">{s}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {selectedUser.resume_url && (
+                        <div className="col-span-2 p-4 bg-slate-50 rounded-2xl">
+                          <p className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">Resume / CV</p>
+                          <a href={selectedUser.resume_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm font-semibold text-blue-500 hover:underline">
+                            <FileText className="w-4 h-4" /> View Resume
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Startup-specific */}
+                {selectedUser.role === 'startup' && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Startup Details</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {selectedUser.industry && (
+                        <div className="p-4 bg-slate-50 rounded-2xl">
+                          <p className="text-[10px] text-slate-400 uppercase tracking-widest">Industry</p>
+                          <p className="text-sm font-semibold text-[#1a1a1a] mt-0.5">{selectedUser.industry}</p>
+                        </div>
+                      )}
+                      {selectedUser.company_size && (
+                        <div className="p-4 bg-slate-50 rounded-2xl">
+                          <p className="text-[10px] text-slate-400 uppercase tracking-widest">Company Size</p>
+                          <p className="text-sm font-semibold text-[#1a1a1a] mt-0.5">{selectedUser.company_size}</p>
+                        </div>
+                      )}
+                      {selectedUser.founded_year && (
+                        <div className="p-4 bg-slate-50 rounded-2xl">
+                          <p className="text-[10px] text-slate-400 uppercase tracking-widest">Founded</p>
+                          <p className="text-sm font-semibold text-[#1a1a1a] mt-0.5">{selectedUser.founded_year}</p>
+                        </div>
+                      )}
+                      {selectedUser.gst_number && (
+                        <div className="p-4 bg-slate-50 rounded-2xl">
+                          <p className="text-[10px] text-slate-400 uppercase tracking-widest">GST Number</p>
+                          <p className="text-sm font-semibold text-[#1a1a1a] mt-0.5 uppercase">{selectedUser.gst_number}</p>
+                        </div>
+                      )}
+                      {selectedUser.resume_url && (
+                        <div className="col-span-2 p-4 bg-slate-50 rounded-2xl">
+                          <p className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">Company Documents</p>
+                          <a href={selectedUser.resume_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm font-semibold text-blue-500 hover:underline">
+                            <FileText className="w-4 h-4" /> View Document
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Meta info */}
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Joined</span>
+                  <span className="text-xs font-semibold text-slate-600">{new Date(selectedUser.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}</span>
+                </div>
+
+              </div>
             </div>
           </div>
         </div>

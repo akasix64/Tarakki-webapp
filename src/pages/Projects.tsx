@@ -335,10 +335,15 @@ export default function Projects() {
                         const applied = applications.find(a => String(a.project_id) === String(project.id));
                         if (applied) {
                           return (
-                            <button disabled className="w-full h-14 rounded-full bg-[#ffdd66]/10 text-[#ffdd66] border border-[#ffdd66]/20 text-sm font-bold flex items-center justify-center gap-2 cursor-not-allowed">
+                            <button disabled className={`w-full h-14 rounded-full text-sm font-bold flex items-center justify-center gap-2 cursor-not-allowed border ${['accepted', 'approved'].includes(applied.status?.toLowerCase())
+                                ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                                : applied.status?.toLowerCase() === 'rejected'
+                                  ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                                  : 'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20'
+                              }`}>
                               <CheckCircle2 className="w-4 h-4 opacity-70" />
                               <span className="capitalize">
-                                {applied.status?.toLowerCase() === 'accepted' ? 'Accepted' :
+                                {['accepted', 'approved'].includes(applied.status?.toLowerCase()) ? 'Accepted' :
                                   applied.status?.toLowerCase() === 'rejected' ? 'Rejected' : 'Pending'}
                               </span>
                             </button>

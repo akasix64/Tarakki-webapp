@@ -257,7 +257,9 @@ export default function Profile() {
                             onChange={e => { const f = e.target.files?.[0]; if (f) handleAvatarUpload(f); }} />
                         <div>
                             <h1 className="text-4xl md:text-5xl font-light tracking-tight text-[#1a1a1a]">My Profile</h1>
-                            <p className="text-sm font-bold tracking-[0.2em] text-slate-400 uppercase mt-2">{role} account</p>
+                            <p className="text-sm font-bold tracking-[0.2em] text-slate-400 uppercase mt-2">
+                                {role === 'contractor' ? 'Contractor Account' : role === 'startup' ? 'Startup Account' : `${role} Account`}
+                            </p>
                             <p className="text-xs text-slate-400 mt-1">Click the photo to update your avatar</p>
                         </div>
                     </div>
@@ -274,7 +276,10 @@ export default function Profile() {
                                         {isContractor ? 'Full Name' : 'Company Name'} *
                                     </label>
                                     <div className="relative">
-                                        <User className="absolute left-5 top-[18px] w-5 h-5 text-slate-400" />
+                                        {isContractor
+                                            ? <User className="absolute left-5 top-[18px] w-5 h-5 text-slate-400" />
+                                            : <Building2 className="absolute left-5 top-[18px] w-5 h-5 text-slate-400" />
+                                        }
                                         <input required type="text" value={form.full_name} onChange={set('full_name')}
                                             className={`${inp} pl-14`} placeholder={isContractor ? 'e.g. Rahul Sharma' : 'e.g. TechVentures Pvt Ltd'} />
                                     </div>
@@ -445,6 +450,52 @@ export default function Profile() {
                                             <label className="block text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2 pl-2">Founded Year</label>
                                             <input type="number" min="1990" max={new Date().getFullYear()} value={form.founded_year} onChange={set('founded_year')}
                                                 className="w-full h-14 px-5 text-sm bg-white/5 border border-white/10 rounded-full focus:outline-none focus:ring-2 focus:ring-[#ffdd66] focus:border-transparent placeholder:text-slate-500 text-white transition-all shadow-sm" placeholder="e.g. 2021" />
+                                        </div>
+
+                                        {/* Company Documents Upload */}
+                                        <div className="sm:col-span-2 mt-4">
+                                            <label className="block text-[10px] font-bold uppercase tracking-widest text-white/50 mb-3 pl-2">Company Documents</label>
+                                            <div
+                                                onClick={() => fileInputRef.current?.click()}
+                                                className="border border-dashed border-white/20 bg-white/5 rounded-3xl p-8 text-center cursor-pointer hover:border-[#ffdd66] hover:bg-white/10 transition-all group/upload"
+                                            >
+                                                <input
+                                                    ref={fileInputRef}
+                                                    type="file"
+                                                    className="hidden"
+                                                    accept=".pdf,.doc,.docx"
+                                                    onChange={e => e.target.files?.[0] && handleResumeUpload(e.target.files[0])}
+                                                />
+                                                {uploading ? (
+                                                    <div className="flex flex-col items-center gap-3">
+                                                        <Loader2 className="w-8 h-8 text-[#ffdd66] animate-spin" />
+                                                        <p className="text-sm text-white/70 font-bold uppercase tracking-widest">Uploading…</p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex flex-col items-center gap-3">
+                                                        <div className="w-14 h-14 rounded-full bg-white/10 group-hover/upload:bg-[#ffdd66] flex items-center justify-center transition-colors">
+                                                            <Upload className="w-5 h-5 text-white/60 group-hover/upload:text-black transition-colors" />
+                                                        </div>
+                                                        <p className="text-lg font-light text-white tracking-tight">Click to upload company documents</p>
+                                                        <p className="text-xs font-bold text-white/40 uppercase tracking-widest">PDF or Word · Max 5MB</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {form.resume_url && (
+                                                <div className="mt-4 flex items-center gap-3 px-5 py-3.5 bg-[#ffdd66]/10 rounded-2xl border border-[#ffdd66]/20">
+                                                    <FileText className="w-5 h-5 text-[#ffdd66] shrink-0" />
+                                                    <a href={form.resume_url} target="_blank" rel="noopener noreferrer"
+                                                        className="text-sm text-white font-medium hover:text-[#ffdd66] hover:underline truncate flex-1 transition-colors">
+                                                        {form.resume_url.split('/').pop() || 'View uploaded document'}
+                                                    </a>
+                                                    <CheckCircle2 className="w-5 h-5 text-[#ffdd66] shrink-0" />
+                                                </div>
+                                            )}
+                                            <div className="mt-6">
+                                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2 pl-2">Or paste a link (Drive, Dropbox…)</label>
+                                                <input type="url" value={form.resume_url} onChange={set('resume_url')}
+                                                    className="w-full h-14 px-5 text-sm bg-white/5 border border-white/10 rounded-full focus:outline-none focus:ring-2 focus:ring-[#ffdd66] focus:border-transparent placeholder:text-slate-500 text-white transition-all shadow-sm" placeholder="https://drive.google.com/…" />
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

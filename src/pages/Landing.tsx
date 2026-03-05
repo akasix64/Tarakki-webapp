@@ -63,12 +63,12 @@ export default function Landing() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1 }}
         >
-          Accelerate your <span className="font-medium inline-block relative">
-            Oracle
+          Innovating Enterprise Solutions <span className="font-medium inline-block relative">
+            Oracle journey.
             <svg className="absolute -bottom-2 left-0 w-full h-3 text-[#ffdd66]" viewBox="0 0 100 12" preserveAspectRatio="none">
               <path d="M0,10 Q50,0 100,10" stroke="currentColor" strokeWidth="8" fill="none" strokeLinecap="round" />
             </svg>
-          </span> <br /> journey.
+          </span> <br />
         </motion.h1>
 
         <motion.p
@@ -77,7 +77,7 @@ export default function Landing() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
         >
-          Exclusive projects. High-value contracts. Direct access to <span className="font-medium text-[#1a1a1a]">egisedge</span>.
+          Exclusive projects. High-value contracts. Direct access to <span className="font-medium text-[#1a1a1a]">Oracle contracts</span>.
         </motion.p>
 
         <motion.div
@@ -105,8 +105,8 @@ export default function Landing() {
       <section className="py-24 w-full relative z-10 overflow-hidden">
         <div className="max-w-7xl mx-auto px-6 text-center mb-16 flex flex-col items-center">
           <span className="inline-block px-4 py-1.5 bg-[#1a1a1a]/5 rounded-full text-xs font-bold tracking-[0.2em] uppercase text-[#1a1a1a]/40 mb-6">Opportunities</span>
-          <h2 className="text-4xl md:text-5xl font-light tracking-tight text-[#1a1a1a]">Featured <span className="font-semibold">Roles</span></h2>
-          <p className="mt-4 text-xl text-[#1a1a1a]/60 max-w-xl">Preview the exclusive Oracle projects available right now on Tarakki.</p>
+          <h2 className="text-4xl md:text-5xl font-light tracking-tight text-[#1a1a1a]">Featured <span className="font-semibold">Projects</span></h2>
+          <p className="mt-4 text-xl text-[#1a1a1a]/60 max-w-xl">Preview the exclusive Oracle projects available right now on <span className="font-medium text-[#1a1a1a]">Oracle contracts</span>.</p>
         </div>
 
         <div
@@ -179,7 +179,7 @@ export default function Landing() {
                 <Briefcase className="h-8 w-8 text-[#1a1a1a]" />
               </div>
               <h3 className="text-3xl md:text-5xl font-light tracking-tight text-white mb-6">Exclusive <span className="font-medium">Projects</span></h3>
-              <p className="text-white/60 text-lg leading-relaxed max-w-md">Access massive, high-value Oracle implementations and migrations directly from egisedge. No middlemen, just tier-1 work.</p>
+              <p className="text-white/60 text-lg leading-relaxed max-w-md">Access massive, high-value Oracle implementations and migrations directly from Oracle Contracts. No middlemen, just tier-1 work.</p>
             </div>
           </motion.div>
 
@@ -226,7 +226,7 @@ export default function Landing() {
         <div className="text-center mb-20 flex flex-col items-center">
           <span className="inline-block px-4 py-1.5 bg-[#1a1a1a]/5 rounded-full text-xs font-bold tracking-[0.2em] uppercase text-[#1a1a1a]/40 mb-6">Membership</span>
           <h2 className="text-5xl md:text-6xl font-light tracking-tight text-[#1a1a1a]">Select your <span className="font-semibold">Tier</span></h2>
-          <p className="mt-6 text-xl text-[#1a1a1a]/60 max-w-xl">Maximize your visibility and project access directly with egisedge.</p>
+          <p className="mt-6 text-xl text-[#1a1a1a]/60 max-w-xl">Maximize your visibility and project access directly with Oracle Contracts.</p>
         </div>
 
         <div className="grid md:grid-cols-2 gap-8 relative">

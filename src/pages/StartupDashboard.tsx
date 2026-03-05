@@ -98,8 +98,14 @@ export default function StartupDashboard() {
   const totalTeam = projects.reduce((a, p) => a + (p.teamSize || 0), 0);
 
   const totalAppsCount = applications.length;
-  const pendingAppsCount = applications.filter(a => a.status === 'Pending' || !a.status).length;
-  const acceptedAppsCount = applications.filter(a => a.status === 'Accepted').length;
+  const pendingAppsCount = applications.filter(a => {
+    const s = a.status?.toLowerCase();
+    return !s || s === 'pending';
+  }).length;
+  const acceptedAppsCount = applications.filter(a => {
+    const s = a.status?.toLowerCase();
+    return s === 'accepted' || s === 'approved';
+  }).length;
 
   const hiringRate = total > 0 ? Math.round((hiring / total) * 100) : 0;
   const activeRate = total > 0 ? Math.round((inProgress / total) * 100) : 0;
@@ -321,17 +327,29 @@ export default function StartupDashboard() {
                   return (
                     <div key={app.id} className="flex gap-4 group cursor-pointer hover:bg-white/5 rounded-2xl p-3 -mx-2 transition-colors">
                       <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 shadow-inner 
-                      ${isAccepted ? 'bg-[#ffdd66] text-black' : 'bg-white/10 text-white/60 border border-white/5'}`}>
-                        {isAccepted ? <Users className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                      ${['accepted', 'approved'].includes(app.status?.toLowerCase()) ? 'bg-[#ffdd66] text-black'
+                          : app.status?.toLowerCase() === 'rejected' ? 'bg-red-500/20 text-red-400 border border-red-500/20'
+                            : 'bg-white/10 text-white/60 border border-white/5'}`}>
+                        {['accepted', 'approved'].includes(app.status?.toLowerCase()) ? <Users className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
                       </div>
                       <div className="flex-1 min-w-0 flex flex-col justify-center">
                         <h4 className="text-sm font-semibold text-white truncate group-hover:text-[#ffdd66] transition-colors">{project?.title || 'Unknown Role'}</h4>
-                        <p className="text-[11px] text-white/50 mt-1 truncate tracking-wide">Pending Review</p>
+                        <p className={`text-[11px] mt-1 truncate tracking-wide font-bold uppercase ${['accepted', 'approved'].includes(app.status?.toLowerCase()) ? 'text-[#ffdd66]'
+                            : app.status?.toLowerCase() === 'rejected' ? 'text-red-400'
+                              : 'text-white/50'
+                          }`}>
+                          {['accepted', 'approved'].includes(app.status?.toLowerCase()) ? 'Accepted'
+                            : app.status?.toLowerCase() === 'rejected' ? 'Rejected'
+                              : 'Pending Review'
+                          }
+                        </p>
                       </div>
                       <div className="flex items-center">
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center border transition-colors
-                        ${isAccepted ? 'border-[#ffdd66] bg-[#ffdd66]' : 'border-white/20 group-hover:border-white/40'}`}>
-                          {isAccepted && <CheckCircle className="w-3.5 h-3.5 text-black" />}
+                        ${['accepted', 'approved'].includes(app.status?.toLowerCase()) ? 'border-[#ffdd66] bg-[#ffdd66]'
+                            : app.status?.toLowerCase() === 'rejected' ? 'border-red-500/40'
+                              : 'border-white/20 group-hover:border-white/40'}`}>
+                          {['accepted', 'approved'].includes(app.status?.toLowerCase()) && <CheckCircle className="w-3.5 h-3.5 text-black" />}
                         </div>
                       </div>
                     </div>

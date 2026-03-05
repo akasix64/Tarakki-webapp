@@ -91,6 +91,29 @@ export default function ApplyForm() {
 
             if (error) throw error;
 
+            // Notify all admins about the new application
+            const { data: admins, error: adminsError } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('role', 'admin');
+
+            console.log('Admins fetched:', admins, 'Error:', adminsError);
+
+            if (admins && admins.length > 0) {
+                const notificationsPayload = admins.map(admin => ({
+                    user_id: admin.id,
+                    title: 'New Application Received',
+                    message: `${profile?.full_name || 'A user'} has applied for "${project?.title || 'a project'}".`,
+                    type: 'application',
+                    is_read: false
+                }));
+
+                const { error: notifError } = await supabase.from('notifications').insert(notificationsPayload);
+                console.log('Notification insert error:', notifError);
+            } else {
+                console.warn('No admins found or error fetching admins:', adminsError);
+            }
+
             alert("Application submitted successfully!");
             navigate('/dashboard');
         } catch (error: any) {
