@@ -33,6 +33,7 @@ def get_notifications():
             columns="*",
             filters={"user_id": user_id},
             order="created_at.desc",
+            token=token,
         )
         return jsonify(data)
 
@@ -52,8 +53,9 @@ def mark_all_read():
         db.update(
             "notifications",
             updates={"is_read": True},
-            filters={"user_id": user_id, "is_read": "false"},
+            filters={"user_id": user_id, "is_read": False},
             columns="*",
+            token=token,
         )
         return jsonify({"success": True, "message": "Marked all as read"})
 
@@ -73,6 +75,7 @@ def clear_all_notifications():
         db.delete(
             "notifications",
             filters={"user_id": user_id},
+            token=token,
         )
         return jsonify({"success": True, "message": "Cleared all notifications"})
 

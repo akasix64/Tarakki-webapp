@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     User, Building2, Upload, CheckCircle2, AlertCircle,
     Briefcase, Phone, MapPin, Globe, FileText, Hash,
-    Save, Loader2, X, Settings, Bell, Camera
+    Save, Loader2, X, Settings, Bell, Camera, Sparkles, Zap
 } from 'lucide-react';
 import { fetchApi } from '../lib/api';
 
@@ -18,6 +18,7 @@ export default function Profile() {
     const [saving, setSaving] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [avatarUploading, setAvatarUploading] = useState(false);
+    const [parsing, setParsing] = useState(false);
     const [toast, setToast] = useState<Toast | null>(null);
     const [role, setRole] = useState<string>('contractor');
     const [avatarUrl, setAvatarUrl] = useState<string>('');
@@ -134,8 +135,54 @@ export default function Profile() {
 
         const { data: { publicUrl } } = supabase.storage.from('resumes').getPublicUrl(path);
         setForm(f => ({ ...f, resume_url: publicUrl }));
-        showToast({ type: 'success', msg: 'Resume uploaded!' });
+        showToast({ type: 'success', msg: 'Resume uploaded! You can now auto-fill your profile with AI.' });
         setUploading(false);
+    };
+
+    // ── AI Resume Parse (Gemini) ─────────────────────────────────────────────
+    const handleAIParse = async () => {
+        if (!form.resume_url) {
+            showToast({ type: 'error', msg: 'Please upload a resume first.' });
+            return;
+        }
+
+        setParsing(true);
+        try {
+            const result = await fetchApi('/parse-resume', {
+                method: 'POST',
+                body: JSON.stringify({
+                    resume_url: form.resume_url,
+                    role: role,
+                }),
+            });
+
+            if (result?.parsed) {
+                const p = result.parsed;
+                setForm(f => ({
+                    ...f,
+                    full_name: p.full_name || f.full_name,
+                    email: p.email || f.email,
+                    phone: p.phone || f.phone,
+                    location: p.location || f.location,
+                    website: p.website || f.website,
+                    about: p.about || f.about,
+                    // Contractor fields
+                    experience_years: p.experience_years || f.experience_years,
+                    skills: p.skills || f.skills,
+                    // Startup fields
+                    gst_number: p.gst_number || f.gst_number,
+                    industry: p.industry || f.industry,
+                    company_size: p.company_size || f.company_size,
+                    founded_year: p.founded_year || f.founded_year,
+                }));
+                showToast({ type: 'success', msg: 'Profile auto-filled from your document! Review and save.' });
+            } else {
+                showToast({ type: 'error', msg: 'Could not parse the document. Please fill in manually.' });
+            }
+        } catch (err) {
+            showToast({ type: 'error', msg: (err as Error).message || 'AI parsing failed.' });
+        }
+        setParsing(false);
     };
 
     // ── Avatar upload ──────────────────────────────────────────────────────
@@ -415,15 +462,30 @@ export default function Profile() {
                                                 )}
                                             </div>
 
-                                            {/* Current file link */}
+                                            {/* Current file link + AI Parse button */}
                                             {form.resume_url && (
-                                                <div className="mt-4 flex items-center gap-3 px-5 py-3.5 bg-[#ffdd66]/10 rounded-2xl border border-[#ffdd66]/20">
-                                                    <FileText className="w-5 h-5 text-[#ffdd66] shrink-0" />
-                                                    <a href={form.resume_url} target="_blank" rel="noopener noreferrer"
-                                                        className="text-sm text-white font-medium hover:text-[#ffdd66] hover:underline truncate flex-1 transition-colors">
-                                                        {form.resume_url.split('/').pop() || 'View uploaded resume'}
-                                                    </a>
-                                                    <CheckCircle2 className="w-5 h-5 text-[#ffdd66] shrink-0" />
+                                                <div className="mt-4 space-y-3">
+                                                    <div className="flex items-center gap-3 px-5 py-3.5 bg-[#ffdd66]/10 rounded-2xl border border-[#ffdd66]/20">
+                                                        <FileText className="w-5 h-5 text-[#ffdd66] shrink-0" />
+                                                        <a href={form.resume_url} target="_blank" rel="noopener noreferrer"
+                                                            className="text-sm text-white font-medium hover:text-[#ffdd66] hover:underline truncate flex-1 transition-colors">
+                                                            {form.resume_url.split('/').pop() || 'View uploaded resume'}
+                                                        </a>
+                                                        <CheckCircle2 className="w-5 h-5 text-[#ffdd66] shrink-0" />
+                                                    </div>
+                                                    {/* AI Auto-Fill Button */}
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleAIParse}
+                                                        disabled={parsing}
+                                                        className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-[#ffdd66] to-[#ffcc33] text-[#1a1a1a] font-bold text-sm rounded-2xl hover:shadow-lg hover:shadow-[#ffdd66]/20 hover:-translate-y-0.5 transition-all disabled:opacity-60 disabled:hover:translate-y-0"
+                                                    >
+                                                        {parsing ? (
+                                                            <><Loader2 className="w-5 h-5 animate-spin" /> Parsing with AI…</>
+                                                        ) : (
+                                                            <><Sparkles className="w-5 h-5" /> Auto-Fill Profile with AI<Zap className="w-4 h-4" /></>
+                                                        )}
+                                                    </button>
                                                 </div>
                                             )}
 
@@ -513,13 +575,28 @@ export default function Profile() {
                                                 )}
                                             </div>
                                             {form.resume_url && (
-                                                <div className="mt-4 flex items-center gap-3 px-5 py-3.5 bg-[#ffdd66]/10 rounded-2xl border border-[#ffdd66]/20">
-                                                    <FileText className="w-5 h-5 text-[#ffdd66] shrink-0" />
-                                                    <a href={form.resume_url} target="_blank" rel="noopener noreferrer"
-                                                        className="text-sm text-white font-medium hover:text-[#ffdd66] hover:underline truncate flex-1 transition-colors">
-                                                        {form.resume_url.split('/').pop() || 'View uploaded document'}
-                                                    </a>
-                                                    <CheckCircle2 className="w-5 h-5 text-[#ffdd66] shrink-0" />
+                                                <div className="mt-4 space-y-3">
+                                                    <div className="flex items-center gap-3 px-5 py-3.5 bg-[#ffdd66]/10 rounded-2xl border border-[#ffdd66]/20">
+                                                        <FileText className="w-5 h-5 text-[#ffdd66] shrink-0" />
+                                                        <a href={form.resume_url} target="_blank" rel="noopener noreferrer"
+                                                            className="text-sm text-white font-medium hover:text-[#ffdd66] hover:underline truncate flex-1 transition-colors">
+                                                            {form.resume_url.split('/').pop() || 'View uploaded document'}
+                                                        </a>
+                                                        <CheckCircle2 className="w-5 h-5 text-[#ffdd66] shrink-0" />
+                                                    </div>
+                                                    {/* AI Auto-Fill Button */}
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleAIParse}
+                                                        disabled={parsing}
+                                                        className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-[#ffdd66] to-[#ffcc33] text-[#1a1a1a] font-bold text-sm rounded-2xl hover:shadow-lg hover:shadow-[#ffdd66]/20 hover:-translate-y-0.5 transition-all disabled:opacity-60 disabled:hover:translate-y-0"
+                                                    >
+                                                        {parsing ? (
+                                                            <><Loader2 className="w-5 h-5 animate-spin" /> Parsing with AI…</>
+                                                        ) : (
+                                                            <><Sparkles className="w-5 h-5" /> Auto-Fill Profile with AI<Zap className="w-4 h-4" /></>
+                                                        )}
+                                                    </button>
                                                 </div>
                                             )}
                                             <div className="mt-6">
