@@ -22,6 +22,7 @@ from routes.applications import applications_bp
 from routes.projects import projects_bp
 from routes.profiles import profiles_bp
 from routes.notifications import notifications_bp
+from routes.resume_parser import resume_parser_bp
 
 
 # ---------- App Setup ----------
@@ -29,7 +30,7 @@ from routes.notifications import notifications_bp
 app = Flask(__name__)
 
 # CORS — allow all origins (same as the Express cors() default)
-CORS(app)
+# CORS is initialized after blueprints for better compatibility
 
 
 # ---------- Health Check ----------
@@ -45,18 +46,40 @@ app.register_blueprint(applications_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(profiles_bp)
 app.register_blueprint(notifications_bp)
+app.register_blueprint(resume_parser_bp)
+
+
+# ---------- CORS Initialization ----------
+
+# We initialize CORS after all blueprints are registered to ensure 
+# it applies to all routes correctly.
+CORS(app)
 
 
 # ---------- Error Handlers ----------
 
 @app.errorhandler(401)
-def unauthorized(e):
-    return jsonify({"error": str(e.description)}), 401
-
-
 @app.errorhandler(404)
-def not_found(e):
-    return jsonify({"error": str(e.description)}), 404
+@app.errorhandler(405)
+@app.errorhandler(500)
+def handle_http_error(e):
+    """Return JSON instead of HTML for standard HTTP errors."""
+    return jsonify({
+        "error": e.name,
+        "message": e.description if hasattr(e, 'description') else str(e)
+    }), e.code
+
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Catch-all for any other unhandled errors."""
+    # Print the error for debugging purposes
+    print(f"Unhandled Exception: {e}")
+    
+    return jsonify({
+        "error": "Internal Server Error",
+        "message": str(e)
+    }), 500
 
 
 # ---------- Entry Point ----------

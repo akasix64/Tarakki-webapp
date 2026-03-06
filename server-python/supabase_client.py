@@ -45,6 +45,9 @@ def select(table, columns="*", filters=None, order=None, token=None, single=Fals
 
     if filters:
         for col, val in filters.items():
+            # Supabase API expects lowercase true/false for boolean values
+            if isinstance(val, bool):
+                val = str(val).lower()
             params[col] = f"eq.{val}"
 
     resp = requests.get(f"{REST_URL}/{table}", headers=headers, params=params)
@@ -100,6 +103,8 @@ def update(table, updates, filters, columns="*", token=None):
     headers["Prefer"] = "return=representation"
 
     for col, val in filters.items():
+        if isinstance(val, bool):
+            val = str(val).lower()
         params[col] = f"eq.{val}"
 
     resp = requests.patch(f"{REST_URL}/{table}", headers=headers, json=updates, params=params)
@@ -144,6 +149,8 @@ def delete(table, filters, token=None):
     headers = _headers(token)
 
     for col, val in filters.items():
+        if isinstance(val, bool):
+            val = str(val).lower()
         params[col] = f"eq.{val}"
 
     resp = requests.delete(f"{REST_URL}/{table}", headers=headers, params=params)
