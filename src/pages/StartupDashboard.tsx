@@ -6,6 +6,7 @@ import {
   CheckCircle, Clock, Plus, Bell, Settings, UserCircle,
   TrendingUp, Menu, Star, Building2, ArrowUpRight, Briefcase, ArrowRight
 } from 'lucide-react';
+import { fetchApi } from '../lib/api';
 
 const NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -27,51 +28,45 @@ export default function StartupDashboard() {
     const fetchData = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        // Fetch Profile
-        const { data: profileData } = await supabase
-          .from('profiles').select('*').eq('id', session.user.id).single();
-        setProfile(profileData);
-
-        // Fetch Projects created by this startup
-        const { data: projectsData, error: projError } = await supabase
-          .from('projects')
-          .select('*')
-          .eq('startup_id', profileData?.id || session.user.id)
-          .order('created_at', { ascending: false });
-
-        if (!projError && projectsData) {
-          setProjects(projectsData.map(p => ({
-            ...p,
-            teamSize: p.team_size || 0,
-            posted: new Date(p.created_at).toLocaleDateString()
-          })));
-        }
-
-        // Fetch Applications for all projects owned by this startup
-        const { data: appsData, error: appsError } = await supabase
-          .from('applications')
-          .select(`
-            *,
-            projects!inner(*)
-          `)
-          // We can't directly filter inner join easily for this specific structure in standard select sometimes,
-          // so we'll fetch all apps and filter in memory if needed, or better, fetch apps where project.startup_id = id.
-          // For simplicity right now, assuming the startup only sees their own stuff.
-          .order('created_at', { ascending: false });
-
-        if (!appsError && appsData) {
-          const startupProjectIds = projectsData?.map(p => p.id) || [];
-          const relevantApps = appsData.filter(app => startupProjectIds.includes(app.project_id));
-          setApplications(relevantApps);
-        }
-
-        // Fetch notifications for this startup user
+        // Fetch notifications
         const fetchNotifs = async () => {
-          const { data: notifsData } = await supabase
-            .from('notifications').select('*').eq('user_id', session.user.id).order('created_at', { ascending: false });
-          if (notifsData) setNotifications(notifsData);
+          try {
+            const notifsData = await fetchApi('/notifications');
+            if (notifsData) setNotifications(notifsData);
+          } catch (e) {
+            console.error(e);
+          }
         };
-        fetchNotifs();
+
+        try {
+          // Fetch Profile
+          const profileData = await fetchApi(`/profiles/${session.user.id}`);
+          setProfile(profileData);
+
+          // Fetch Projects
+          const projectsData = await fetchApi('/projects');
+          const myProjects = (projectsData || []).filter((p: any) => p.startup_id === (profileData?.id || session.user.id));
+
+          if (myProjects) {
+            setProjects(myProjects.map((p: any) => ({
+              ...p,
+              teamSize: p.team_size || 0,
+              posted: new Date(p.created_at).toLocaleDateString()
+            })));
+          }
+
+          // Fetch Applications
+          const appsData = await fetchApi('/applications');
+          if (appsData) {
+            const startupProjectIds = myProjects.map((p: any) => p.id);
+            const relevantApps = appsData.filter((app: any) => startupProjectIds.includes(app.project_id));
+            setApplications(relevantApps);
+          }
+
+          fetchNotifs();
+        } catch (err) {
+          console.error('Error fetching dashboard data:', err);
+        }
 
         // Real-time subscription for new notifications
         const ch = supabase.channel('notifs-startup').on('postgres_changes',
@@ -146,11 +141,15 @@ export default function StartupDashboard() {
               <div className="absolute right-0 top-14 w-80 bg-white rounded-3xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                   <h3 className="text-sm font-bold text-[#1a1a1a]">Notifications</h3>
-                  {notifications.some(n => !n.is_read) && (
+                  {notifications.length > 0 && (
                     <button onClick={async () => {
-                      await supabase.from('notifications').update({ is_read: true }).eq('user_id', profile?.id);
-                      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-                    }} className="text-[10px] font-bold text-slate-400 hover:text-[#1a1a1a] uppercase tracking-widest">Mark all read</button>
+                      try {
+                        await fetchApi('/notifications/clear-all', { method: 'DELETE' });
+                        setNotifications([]);
+                      } catch (e) {
+                        console.error("Failed to clear all notifications");
+                      }
+                    }} className="text-[10px] font-bold text-slate-400 hover:text-[#1a1a1a] uppercase tracking-widest">Clear all</button>
                   )}
                 </div>
                 <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
@@ -159,8 +158,12 @@ export default function StartupDashboard() {
                   ) : notifications.map(n => (
                     <div key={n.id} className={`px-5 py-4 flex gap-3 items-start cursor-pointer hover:bg-slate-50 transition-colors ${!n.is_read ? 'bg-[#fffbea]' : ''}`}
                       onClick={async () => {
-                        await supabase.from('notifications').update({ is_read: true }).eq('id', n.id);
-                        setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+                        try {
+                          await fetchApi('/notifications/read-all', { method: 'PUT' });
+                          setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+                        } catch (e) {
+                          console.error("Failed to read");
+                        }
                       }}>
                       <span className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${n.type === 'approved' ? 'bg-green-400' : 'bg-red-400'}`} />
                       <div className="min-w-0">
@@ -183,7 +186,7 @@ export default function StartupDashboard() {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-10 pt-4">
           <div>
             <h1 className="text-5xl md:text-6xl tracking-tight text-[#1a1a1a]">
-              Welcome back, <span className="font-medium">{profile?.full_name?.split(' ')[0] || 'Startup'}</span>
+              Welcome, <span className="font-medium">{profile?.full_name || 'Startup'}</span>
             </h1>
           </div>
           <div className="flex items-end gap-12 pb-2">
@@ -335,8 +338,8 @@ export default function StartupDashboard() {
                       <div className="flex-1 min-w-0 flex flex-col justify-center">
                         <h4 className="text-sm font-semibold text-white truncate group-hover:text-[#ffdd66] transition-colors">{project?.title || 'Unknown Role'}</h4>
                         <p className={`text-[11px] mt-1 truncate tracking-wide font-bold uppercase ${['accepted', 'approved'].includes(app.status?.toLowerCase()) ? 'text-[#ffdd66]'
-                            : app.status?.toLowerCase() === 'rejected' ? 'text-red-400'
-                              : 'text-white/50'
+                          : app.status?.toLowerCase() === 'rejected' ? 'text-red-400'
+                            : 'text-white/50'
                           }`}>
                           {['accepted', 'approved'].includes(app.status?.toLowerCase()) ? 'Accepted'
                             : app.status?.toLowerCase() === 'rejected' ? 'Rejected'

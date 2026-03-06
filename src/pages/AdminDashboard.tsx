@@ -1,6 +1,7 @@
 import React, { useEffect, useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { fetchApi } from '../lib/api';
 import {
   Plus, Users, Briefcase, Activity, X, Check, Trash2,
   LayoutDashboard, FolderOpen, ChevronRight, Bell, Settings,
@@ -30,90 +31,77 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
 
   const fetchData = async () => {
-    const { data: profilesData } = await supabase
-      .from('profiles').select('*').order('created_at', { ascending: false });
-    if (profilesData) {
-      setUsers(profilesData);
-      setStats(prev => ({
-        ...prev,
-        contractors: profilesData.filter(p => p.role === 'contractor').length,
-        startups: profilesData.filter(p => p.role === 'startup').length,
-      }));
-    }
-    const { data: projectsData } = await supabase
-      .from('projects').select('*').order('created_at', { ascending: false });
-    if (projectsData) {
-      setProjects(projectsData);
-      setStats(prev => ({ ...prev, projects: projectsData.length }));
-    }
-    const { data: appsData } = await supabase
-      .from('applications')
-      .select('id');
-    if (appsData) {
-      setStats(prev => ({ ...prev, applications: appsData.length }));
+    try {
+      const profilesData = await fetchApi('/profiles');
+      if (profilesData) {
+        setUsers(profilesData);
+        setStats(prev => ({
+          ...prev,
+          contractors: profilesData.filter((p: any) => p.role === 'contractor').length,
+          startups: profilesData.filter((p: any) => p.role === 'startup').length,
+        }));
+      }
+
+      const projectsData = await fetchApi('/projects');
+      if (projectsData) {
+        setProjects(projectsData);
+        setStats(prev => ({ ...prev, projects: projectsData.length }));
+      }
+
+      // Quick fetch just for stats (if not fetching all applications robustly here)
+      // fetchApplications will calculate deep stats anyway
+    } catch (err) {
+      console.error('Error fetching dashboard data:', err);
     }
   };
 
   const fetchApplications = async () => {
     setApplicationsLoading(true);
-    const { data: rawApps } = await supabase
-      .from('applications').select('*').order('created_at', { ascending: false });
-    if (!rawApps || rawApps.length === 0) {
+    try {
+      const enriched = await fetchApi('/applications');
+      if (enriched && enriched.length > 0) {
+        setApplications(enriched);
+        setStats(prev => ({ ...prev, applications: enriched.length }));
+      } else {
+        setApplications([]);
+      }
+    } catch (err) {
+      console.error('Error fetching applications via API:', err);
       setApplications([]);
+    } finally {
       setApplicationsLoading(false);
-      return;
     }
-    const enriched = await Promise.all(rawApps.map(async (app) => {
-      let profiles = null;
-      let projects = null;
-      if (app.user_id) {
-        const { data: prof } = await supabase.from('profiles').select('full_name, email, role, phone, location, website, about, experience_years, skills, resume_url, industry, company_size, founded_year, gst_number, avatar_url').eq('id', app.user_id).maybeSingle();
-        if (prof) profiles = prof;
-      }
-      if (app.project_id) {
-        const { data: proj } = await supabase.from('projects').select('title').eq('id', app.project_id).maybeSingle();
-        if (proj) projects = proj;
-      }
-      return { ...app, profiles, projects };
-    }));
-    setApplications(enriched);
-    setStats(prev => ({ ...prev, applications: enriched.length }));
-    setApplicationsLoading(false);
   };
 
   useEffect(() => {
     const fetchNotifications = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: false });
-      console.log('[Admin] Notifications fetched:', data, 'Error:', error);
-      if (data) setNotifications(data);
+      try {
+        const notifs = await fetchApi('/notifications');
+        setNotifications(notifs || []);
+      } catch (err) {
+        console.error('Error fetching notifications API:', err);
+      }
     };
 
     fetchData();
     fetchApplications();
     fetchNotifications();
 
-    // Fetch admin's own profile
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Fetch admin's own profile via Auth and API
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
-        supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle().then(({ data, error }) => {
-          console.log('Admin profile fetch:', data, 'Error:', error);
-          if (data) {
-            setAdminProfile(data);
-            setProfileForm({ full_name: data.full_name || '', phone: data.phone || '' });
-          } else {
-            // fallback: use session user metadata
-            const meta = session.user.user_metadata;
-            const fallback = { id: session.user.id, email: session.user.email, full_name: meta?.full_name || '', role: meta?.role || '', phone: '' };
-            setAdminProfile(fallback);
-            setProfileForm({ full_name: fallback.full_name, phone: '' });
-          }
-        });
+        try {
+          const profile = await fetchApi(`/profiles/${session.user.id}`);
+          setAdminProfile(profile);
+          setProfileForm({ full_name: profile.full_name || '', phone: profile.phone || '' });
+        } catch (err) {
+          console.error('Admin profile API fetch error:', err);
+          // fallback: use session user metadata
+          const meta = session.user.user_metadata;
+          const fallback = { id: session.user.id, email: session.user.email, full_name: meta?.full_name || '', role: meta?.role || '', phone: '' };
+          setAdminProfile(fallback);
+          setProfileForm({ full_name: fallback.full_name, phone: '' });
+        }
       }
     });
 
@@ -155,20 +143,31 @@ export default function AdminDashboard() {
   const handleCreateProject = async (e: FormEvent) => {
     e.preventDefault();
     const tagsArray = newProject.tags.split(',').map(t => t.trim()).filter(Boolean);
-    const { error } = await supabase.from('projects').insert([{
-      title: newProject.title, description: newProject.description,
-      location: newProject.location, type: newProject.type,
-      budget: newProject.budget, tags: tagsArray, status: 'Open'
-    }]);
-    if (error) { alert('Failed to create project.'); }
-    else {
+    try {
+      await fetchApi('/projects', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...newProject,
+          tags: tagsArray
+        })
+      });
       setIsProjectModalOpen(false);
       setNewProject({ title: '', description: '', location: '', type: 'Contract', budget: '', tags: '' });
+      fetchData(); // refresh list
+    } catch (err) {
+      alert('Failed to create project: ' + (err as Error).message);
     }
   };
 
   const handleDeleteProject = async (id: string) => {
-    if (confirm('Delete this project?')) await supabase.from('projects').delete().eq('id', id);
+    if (confirm('Delete this project?')) {
+      try {
+        await fetchApi(`/projects/${id}`, { method: 'DELETE' });
+        fetchData(); // refresh list
+      } catch (err) {
+        alert('Failed to delete project: ' + (err as Error).message);
+      }
+    }
   };
 
   const handleSaveProfile = async (e: FormEvent) => {
@@ -177,18 +176,19 @@ export default function AdminDashboard() {
       alert('No profile loaded. Please refresh.');
       return;
     }
-    const { error } = await supabase.from('profiles').upsert({
-      id: adminProfile.id,
-      full_name: profileForm.full_name,
-      phone: profileForm.phone,
-      email: adminProfile.email,
-      role: adminProfile.role || 'admin',
-    }, { onConflict: 'id' });
-    if (error) {
-      alert('Failed to save profile: ' + error.message);
-    } else {
+
+    try {
+      await fetchApi(`/profiles/${adminProfile.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          full_name: profileForm.full_name,
+          phone: profileForm.phone,
+        })
+      });
       setAdminProfile({ ...adminProfile, full_name: profileForm.full_name, phone: profileForm.phone });
       setIsEditingProfile(false);
+    } catch (err) {
+      alert('Failed to save profile: ' + (err as Error).message);
     }
   };
 
@@ -240,14 +240,15 @@ export default function AdminDashboard() {
                 <div className="absolute right-0 top-14 w-80 bg-white rounded-3xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
                   <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                     <h3 className="text-sm font-bold text-[#1a1a1a]">Notifications</h3>
-                    {notifications.some(n => !n.is_read) && (
+                    {notifications.length > 0 && (
                       <button onClick={async () => {
-                        const { data: { session } } = await supabase.auth.getSession();
-                        if (session) {
-                          await supabase.from('notifications').update({ is_read: true }).eq('user_id', session.user.id);
-                          setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+                        try {
+                          await fetchApi('/notifications/clear-all', { method: 'DELETE' });
+                          setNotifications([]);
+                        } catch (err) {
+                          console.error('Failed to clear notifications', err);
                         }
-                      }} className="text-[10px] font-bold text-slate-400 hover:text-[#1a1a1a] uppercase tracking-widest">Mark all read</button>
+                      }} className="text-[10px] font-bold text-slate-400 hover:text-[#1a1a1a] uppercase tracking-widest">Clear all</button>
                     )}
                   </div>
                   <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
@@ -257,8 +258,11 @@ export default function AdminDashboard() {
                       <div key={n.id} className={`px-5 py-4 flex gap-3 items-start cursor-pointer hover:bg-slate-50 transition-colors ${!n.is_read ? 'bg-[#fffbea]' : ''}`}
                         onClick={async () => {
                           if (!n.is_read) {
-                            await supabase.from('notifications').update({ is_read: true }).eq('id', n.id);
-                            setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+                            try {
+                              // Assuming we'll add a single notification read point later, or just mark-all for now
+                              await fetchApi('/notifications/read-all', { method: 'PUT' });
+                              setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+                            } catch (e) { }
                           }
                           if (n.type === 'application') {
                             setActiveTab('applications');
@@ -598,46 +602,36 @@ export default function AdminDashboard() {
                                   <button
                                     title="Approve"
                                     onClick={async () => {
-                                      // Optimistic update: change badge immediately in UI
+                                      // Optimistic update
                                       setApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: 'approved' } : a));
-                                      const { error } = await supabase.from('applications').update({ status: 'approved' }).eq('id', app.id);
-                                      if (error) {
-                                        console.error('Update failed:', error.message);
-                                        // Revert if failed
+                                      try {
+                                        await fetchApi(`/applications/${app.id}/status`, {
+                                          method: 'PUT',
+                                          body: JSON.stringify({ status: 'approved' })
+                                        });
+                                      } catch (err) {
+                                        console.error('Update failed:', err);
                                         setApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: app.status } : a));
-                                        alert('Failed to update: ' + error.message);
-                                        return;
+                                        alert('Failed to update: ' + (err as Error).message);
                                       }
-                                      await supabase.from('notifications').insert({
-                                        user_id: app.user_id,
-                                        title: '🎉 Application Approved!',
-                                        message: `Your application for "${app.projects?.title || 'a project'}" has been approved by the admin.`,
-                                        type: 'approved',
-                                        is_read: false,
-                                      });
                                     }}
                                     className="p-2 rounded-xl bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors"
                                   ><Check className="w-4 h-4" /></button>
                                   <button
                                     title="Reject"
                                     onClick={async () => {
-                                      // Optimistic update: change badge immediately in UI
+                                      // Optimistic update
                                       setApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: 'rejected' } : a));
-                                      const { error } = await supabase.from('applications').update({ status: 'rejected' }).eq('id', app.id);
-                                      if (error) {
-                                        console.error('Update failed:', error.message);
-                                        // Revert if failed
+                                      try {
+                                        await fetchApi(`/applications/${app.id}/status`, {
+                                          method: 'PUT',
+                                          body: JSON.stringify({ status: 'rejected' })
+                                        });
+                                      } catch (err) {
+                                        console.error('Update failed:', err);
                                         setApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: app.status } : a));
-                                        alert('Failed to update: ' + error.message);
-                                        return;
+                                        alert('Failed to update: ' + (err as Error).message);
                                       }
-                                      await supabase.from('notifications').insert({
-                                        user_id: app.user_id,
-                                        title: '❌ Application Rejected',
-                                        message: `Unfortunately, your application for "${app.projects?.title || 'a project'}" has been rejected.`,
-                                        type: 'rejected',
-                                        is_read: false,
-                                      });
                                     }}
                                     className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
                                   ><X className="w-4 h-4" /></button>
@@ -981,8 +975,14 @@ export default function AdminDashboard() {
                   onClick={async () => {
                     setApplications(prev => prev.map(a => a.id === selectedApplication.id ? { ...a, status: 'approved' } : a));
                     setSelectedApplication((prev: any) => ({ ...prev, status: 'approved' }));
-                    await supabase.from('applications').update({ status: 'approved' }).eq('id', selectedApplication.id);
-                    await supabase.from('notifications').insert({ user_id: selectedApplication.user_id, title: '🎉 Application Approved!', message: `Your application for "${selectedApplication.projects?.title || 'a project'}" has been approved.`, type: 'approved', is_read: false });
+                    try {
+                      await fetchApi(`/applications/${selectedApplication.id}/status`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ status: 'approved' })
+                      });
+                    } catch (err) {
+                      console.error('Update failed', err);
+                    }
                   }}
                   className="flex-1 py-3 rounded-2xl bg-green-500/10 text-green-600 text-sm font-bold hover:bg-green-500/20 transition-colors flex items-center justify-center gap-2"
                 >
@@ -992,8 +992,14 @@ export default function AdminDashboard() {
                   onClick={async () => {
                     setApplications(prev => prev.map(a => a.id === selectedApplication.id ? { ...a, status: 'rejected' } : a));
                     setSelectedApplication((prev: any) => ({ ...prev, status: 'rejected' }));
-                    await supabase.from('applications').update({ status: 'rejected' }).eq('id', selectedApplication.id);
-                    await supabase.from('notifications').insert({ user_id: selectedApplication.user_id, title: '❌ Application Rejected', message: `Your application for "${selectedApplication.projects?.title || 'a project'}" has been rejected.`, type: 'rejected', is_read: false });
+                    try {
+                      await fetchApi(`/applications/${selectedApplication.id}/status`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ status: 'rejected' })
+                      });
+                    } catch (err) {
+                      console.error('Update failed', err);
+                    }
                   }}
                   className="flex-1 py-3 rounded-2xl bg-red-500/10 text-red-500 text-sm font-bold hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2"
                 >

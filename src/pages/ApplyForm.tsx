@@ -6,6 +6,8 @@ import {
     AlertCircle, ArrowLeft, Loader2, IndianRupee, MapPin
 } from 'lucide-react';
 
+import { fetchApi } from '../lib/api';
+
 // ─── Shared input style ──────────────────────────────────────────────────────
 const inp = "w-full min-h-[56px] px-5 text-sm bg-white/40 backdrop-blur-md border border-white/50 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#ffdd66] focus:border-transparent placeholder:text-slate-400 text-[#1a1a1a] transition-all shadow-sm";
 const labelCls = "block text-[10px] font-bold uppercase tracking-widest text-[#1a1a1a]/60 mb-2 pl-2";
@@ -34,33 +36,28 @@ export default function ApplyForm() {
                 return;
             }
 
-            // Fetch profile
-            const { data: profData } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', session.user.id)
-                .single();
+            try {
+                // Fetch profile
+                const profData = await fetchApi(`/profiles/${session.user.id}`);
+                setProfile(profData);
 
-            setProfile(profData);
-
-            // Fetch project if projectId exists and isn't mock (mock projects won't be found in DB for a fresh setup, handle gracefully)
-            if (projectId && !isNaN(Number(projectId))) {
-                const { data: projData } = await supabase
-                    .from('projects')
-                    .select('*')
-                    .eq('id', projectId)
-                    .single();
-
-                if (projData) {
-                    setProject(projData);
-                } else {
-                    // Fallback mock strictly for display if the hardcoded 1/2 IDs are passed
-                    setProject({
-                        id: projectId,
-                        title: projectId === '1' ? 'Oracle Cloud Infrastructure Migration' : 'Oracle E-Business Suite Upgrade',
-                        company: 'egisedge',
-                    });
+                // Fetch project if projectId exists and isn't mock (mock projects won't be found in DB for a fresh setup, handle gracefully)
+                if (projectId && !isNaN(Number(projectId))) {
+                    const projData = await fetchApi('/projects');
+                    const proj = projData?.find((p: any) => p.id === projectId);
+                    if (proj) {
+                        setProject(proj);
+                    } else {
+                        // Fallback mock strictly for display if the hardcoded 1/2 IDs are passed
+                        setProject({
+                            id: projectId,
+                            title: projectId === '1' ? 'Oracle Cloud Infrastructure Migration' : 'Oracle E-Business Suite Upgrade',
+                            company: 'egisedge',
+                        });
+                    }
                 }
+            } catch (err) {
+                console.error("Error fetching data for apply form:", err);
             }
 
             setLoading(false);
@@ -78,41 +75,18 @@ export default function ApplyForm() {
         if (!session) return;
 
         try {
-            const { error } = await supabase
-                .from('applications')
-                .insert([{
+            await fetchApi('/applications', {
+                method: 'POST',
+                body: JSON.stringify({
                     user_id: session.user.id,
                     project_id: String(projectId),
                     status: 'pending',
                     cover_letter: form.cover_letter,
                     expected_rate: form.expected_rate,
                     availability: form.availability
-                }]);
+                })
+            });
 
-            if (error) throw error;
-
-            // Notify all admins about the new application
-            const { data: admins, error: adminsError } = await supabase
-                .from('profiles')
-                .select('id')
-                .eq('role', 'admin');
-
-            console.log('Admins fetched:', admins, 'Error:', adminsError);
-
-            if (admins && admins.length > 0) {
-                const notificationsPayload = admins.map(admin => ({
-                    user_id: admin.id,
-                    title: 'New Application Received',
-                    message: `${profile?.full_name || 'A user'} has applied for "${project?.title || 'a project'}".`,
-                    type: 'application',
-                    is_read: false
-                }));
-
-                const { error: notifError } = await supabase.from('notifications').insert(notificationsPayload);
-                console.log('Notification insert error:', notifError);
-            } else {
-                console.warn('No admins found or error fetching admins:', adminsError);
-            }
 
             alert("Application submitted successfully!");
             navigate('/dashboard');

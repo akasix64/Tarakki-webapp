@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Briefcase, MapPin, Clock, Search, SlidersHorizontal, ArrowRight, CheckCircle2, X, ChevronDown } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { fetchApi } from '../lib/api';
 
 const LOCATIONS = ['Remote', 'Hybrid', 'On-site'];
 const TYPES = ['Contract', 'Project', 'Full-time', 'Part-time'];
@@ -51,20 +52,23 @@ export default function Projects() {
     }).catch(err => console.error('Supabase connection error:', err));
 
     const fetchApplications = async (userId: string) => {
-      const { data, error } = await supabase
-        .from('applications').select('project_id, status').eq('user_id', userId);
-      if (!error && data) setApplications(data);
+      try {
+        const appsData = await fetchApi('/applications');
+        // Filter applications for the current user
+        const myApps = (appsData || []).filter((a: any) => a.user_id === userId);
+        setApplications(myApps);
+      } catch (err) {
+        console.error('Error fetching applications:', err);
+      }
     };
 
     const fetchProjects = async () => {
       try {
-        const { data, error } = await supabase
-          .from('projects').select('*').order('created_at', { ascending: false });
-        if (error) throw error;
+        const data = await fetchApi('/projects');
         if (data && data.length > 0) {
-          setProjects(data.map(p => ({
+          setProjects(data.map((p: any) => ({
             ...p,
-            company: 'egisedge',
+            company: p.company || 'egisedge',
             postedAt: new Date(p.created_at).toLocaleDateString()
           })));
         } else {
@@ -336,10 +340,10 @@ export default function Projects() {
                         if (applied) {
                           return (
                             <button disabled className={`w-full h-14 rounded-full text-sm font-bold flex items-center justify-center gap-2 cursor-not-allowed border ${['accepted', 'approved'].includes(applied.status?.toLowerCase())
-                                ? 'bg-green-500/10 text-green-400 border-green-500/20'
-                                : applied.status?.toLowerCase() === 'rejected'
-                                  ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                                  : 'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20'
+                              ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                              : applied.status?.toLowerCase() === 'rejected'
+                                ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                                : 'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20'
                               }`}>
                               <CheckCircle2 className="w-4 h-4 opacity-70" />
                               <span className="capitalize">

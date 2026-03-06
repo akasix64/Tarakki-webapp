@@ -14,7 +14,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchProfile = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session) {
         navigate('/login');
         return;
@@ -36,14 +36,28 @@ export default function Dashboard() {
 
       if (error) {
         console.error('Error fetching profile:', error);
-        // Fallback or handle error
-        // If no profile, maybe they signed up with Google and need to complete profile
-        // For now, default to contractor if not found
-        setRole(session.user.user_metadata?.role || 'contractor');
+
+        // 1. Check user metadata (set during Signup with email)
+        let determinedRole = session.user.user_metadata?.role;
+
+        // 2. Check localStorage (set during Signup with Google)
+        if (!determinedRole) {
+          const pending = localStorage.getItem('pending_role');
+          if (pending) {
+            determinedRole = pending;
+            // We'll leave it in localStorage for Profile.tsx to pick up if they go there next, 
+            // but we use it here for the dashboard view.
+          }
+        }
+
+        setRole(determinedRole || 'contractor');
       } else if (data) {
         setRole(data.role);
+        // Clear pending garbage if they now have a real profile
+        localStorage.removeItem('pending_role');
+        localStorage.removeItem('pending_name');
       }
-      
+
       setLoading(false);
     };
 

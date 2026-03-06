@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { fetchApi } from '../lib/api';
 import {
     Briefcase,
     ChevronLeft,
@@ -20,55 +21,11 @@ export default function ManageApplications() {
     const fetchApplications = async () => {
         setLoading(true);
         try {
-            // 1. Fetch all applications from Supabase directly
-            const { data: rawApps, error } = await supabase
-                .from('applications')
-                .select('*')
-                .order('created_at', { ascending: false });
-
-            if (error) {
-                console.error('Error fetching applications:', error);
-                setLoading(false);
-                return;
-            }
-
-            if (!rawApps || rawApps.length === 0) {
-                setApplications([]);
-                setLoading(false);
-                return;
-            }
-
-            // 2. Manually join profiles and projects for each application
-            const enriched = await Promise.all(rawApps.map(async (app) => {
-                let profiles = null;
-                let projects = null;
-
-                // Fetch user name by matching user_id to profiles.id
-                if (app.user_id) {
-                    const { data: prof } = await supabase
-                        .from('profiles')
-                        .select('full_name, email, role')
-                        .eq('id', app.user_id)
-                        .maybeSingle();
-                    if (prof) profiles = prof;
-                }
-
-                // Fetch project title by matching project_id to projects.id
-                if (app.project_id) {
-                    const { data: proj } = await supabase
-                        .from('projects')
-                        .select('title')
-                        .eq('id', app.project_id)
-                        .maybeSingle();
-                    if (proj) projects = proj;
-                }
-
-                return { ...app, profiles, projects };
-            }));
-
-            setApplications(enriched);
-        } catch (err) {
-            console.error('Unexpected error:', err);
+            const data = await fetchApi('/applications');
+            setApplications(data || []);
+        } catch (err: any) {
+            console.error('Error fetching applications:', err);
+            alert('Failed to fetch applications: ' + err.message);
         }
         setLoading(false);
     };
@@ -82,19 +39,16 @@ export default function ManageApplications() {
 
     const handleUpdateStatus = async (appId: string, newStatus: string) => {
         try {
-            const { error } = await supabase
-                .from('applications')
-                .update({ status: newStatus })
-                .eq('id', appId);
-            if (error) {
-                alert('Failed to update status: ' + error.message);
-            } else {
-                // Optimistically update the local state
-                setApplications(prev => prev.map(a => a.id === appId ? { ...a, status: newStatus } : a));
-            }
-        } catch (err) {
+            await fetchApi(`/applications/${appId}/status`, {
+                method: 'PUT',
+                body: JSON.stringify({ status: newStatus })
+            });
+
+            // Optimistically update the local state
+            setApplications(prev => prev.map(a => a.id === appId ? { ...a, status: newStatus } : a));
+        } catch (err: any) {
             console.error(err);
-            alert('Failed to update status');
+            alert('Failed to update status: ' + err.message);
         }
     };
 

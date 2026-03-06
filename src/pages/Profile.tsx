@@ -6,6 +6,7 @@ import {
     Briefcase, Phone, MapPin, Globe, FileText, Hash,
     Save, Loader2, X, Settings, Bell, Camera
 } from 'lucide-react';
+import { fetchApi } from '../lib/api';
 
 // ─── Shared input style ──────────────────────────────────────────────────────
 const inp = "w-full h-14 px-5 text-sm bg-white/40 backdrop-blur-md border border-white/50 rounded-full focus:outline-none focus:ring-2 focus:ring-[#ffdd66] focus:border-transparent placeholder:text-slate-400 text-[#1a1a1a] transition-all shadow-sm";
@@ -53,33 +54,52 @@ export default function Profile() {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) return;
 
-            const { data } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', session.user.id)
-                .single();
+            try {
+                const data = await fetchApi(`/profiles/${session.user.id}`);
 
-            if (data) {
-                setRole(data.role || 'contractor');
-                setAvatarUrl(data.avatar_url || '');
-                setAvatarPreview(data.avatar_url || '');
-                setForm({
-                    full_name: data.full_name || '',
-                    email: data.email || session.user.email || '',
-                    phone: data.phone || '',
-                    location: data.location || '',
-                    website: data.website || '',
-                    about: data.about || '',
-                    resume_url: data.resume_url || '',
-                    experience_years: data.experience_years ? String(data.experience_years) : '',
-                    skills: Array.isArray(data.skills) ? data.skills.join(', ') : (data.skills || ''),
-                    gst_number: data.gst_number || '',
-                    company_size: data.company_size || '',
-                    industry: data.industry || '',
-                    founded_year: data.founded_year ? String(data.founded_year) : '',
-                });
-            } else {
-                setForm(f => ({ ...f, email: session.user.email || '' }));
+                if (data) {
+                    setRole(data.role || 'contractor');
+                    setAvatarUrl(data.avatar_url || '');
+                    setAvatarPreview(data.avatar_url || '');
+                    setForm({
+                        full_name: data.full_name || '',
+                        email: data.email || session.user.email || '',
+                        phone: data.phone || '',
+                        location: data.location || '',
+                        website: data.website || '',
+                        about: data.about || '',
+                        resume_url: data.resume_url || '',
+                        experience_years: data.experience_years ? String(data.experience_years) : '',
+                        skills: Array.isArray(data.skills) ? data.skills.join(', ') : (data.skills || ''),
+                        gst_number: data.gst_number || '',
+                        company_size: data.company_size || '',
+                        industry: data.industry || '',
+                        founded_year: data.founded_year ? String(data.founded_year) : '',
+                    });
+                }
+            } catch (err) {
+                // Not found - use fallbacks from Metadata or LocalStorage
+                const meta = session.user.user_metadata;
+                const pendRole = localStorage.getItem('pending_role');
+                const pendName = localStorage.getItem('pending_name');
+                const pendGst = localStorage.getItem('pending_gst');
+
+                const initialRole = meta?.role || pendRole || 'contractor';
+                const initialName = meta?.full_name || pendName || '';
+                const initialGst = meta?.gst_number || pendGst || '';
+
+                setRole(initialRole);
+                setForm(f => ({
+                    ...f,
+                    email: session.user.email || '',
+                    full_name: initialName,
+                    gst_number: initialGst
+                }));
+
+                // Clear temporary storage once picked up
+                if (pendRole) localStorage.removeItem('pending_role');
+                if (pendName) localStorage.removeItem('pending_name');
+                if (pendGst) localStorage.removeItem('pending_gst');
             }
             setLoading(false);
         })();
@@ -141,7 +161,16 @@ export default function Profile() {
         const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
         setAvatarUrl(publicUrl);
         // Save to profiles immediately
-        if (session) await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', session.user.id);
+        if (session) {
+            try {
+                await fetchApi(`/profiles/${session.user.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ avatar_url: publicUrl })
+                });
+            } catch (e) {
+                console.error("Failed to update avatar in DB:", e);
+            }
+        }
         showToast({ type: 'success', msg: 'Profile photo updated!' });
         setAvatarUploading(false);
     };
@@ -179,12 +208,14 @@ export default function Profile() {
             payload.founded_year = form.founded_year ? parseInt(form.founded_year) : null;
         }
 
-        const { error } = await supabase.from('profiles').upsert([payload]);
-
-        if (error) {
-            showToast({ type: 'error', msg: error.message });
-        } else {
+        try {
+            await fetchApi(`/profiles/${session.user.id}`, {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+            });
             showToast({ type: 'success', msg: 'Profile saved successfully!' });
+        } catch (err) {
+            showToast({ type: 'error', msg: (err as Error).message });
         }
         setSaving(false);
     };

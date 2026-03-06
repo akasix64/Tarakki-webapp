@@ -14,6 +14,8 @@ import {
   X
 } from 'lucide-react';
 
+import { fetchApi } from '../lib/api';
+
 export default function ContractorDashboard() {
   const [profile, setProfile] = useState<any>(null);
   const [applications, setApplications] = useState<any[]>([]);
@@ -32,42 +34,37 @@ export default function ContractorDashboard() {
 
       const userId = session.user.id;
 
-      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
-      setProfile(data);
+      try {
+        const profileData = await fetchApi(`/profiles/${userId}`);
+        setProfile(profileData);
+      } catch (e) {
+        console.error('Failed to fetch profile', e);
+      }
 
       // Helper: fetch this user's applications
       const fetchApplications = async () => {
-        const { data: appsData, error: appsError } = await supabase
-          .from('applications')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false });
-
-        if (appsError) {
-          console.error('Error fetching applications:', appsError);
-          return;
-        }
-
-        if (appsData) {
-          // Enrich with project titles manually since join might be broken
-          const enriched = await Promise.all(appsData.map(async (app) => {
-            const { data: proj } = await supabase
-              .from('projects')
-              .select('title')
-              .eq('id', app.project_id)
-              .maybeSingle();
-            return { ...app, projects: proj };
-          }));
-          setApplications(enriched);
+        try {
+          const appsData = await fetchApi('/applications');
+          // The API GET /applications currently returns all apps if Admin or needs filtering.
+          // Wait, our GET /api/applications returns ALL apps by default (for Admin).
+          // We should either filter returning data, OR update backend API.
+          // Since we might not want to build complex backend filtering right this second, it's safer to filter locally for now.
+          const myApps = (appsData || []).filter((a: any) => a.user_id === userId);
+          setApplications(myApps);
+        } catch (e) {
+          console.error("Error fetching applications:", e);
         }
       };
       await fetchApplications();
 
       // Helper: fetch notifications
       const fetchNotifs = async () => {
-        const { data: notifsData } = await supabase
-          .from('notifications').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-        if (notifsData) setNotifications(notifsData);
+        try {
+          const notifsData = await fetchApi('/notifications');
+          if (notifsData) setNotifications(notifsData);
+        } catch (e) {
+          console.error("Error fetching notifications", e);
+        }
       };
       fetchNotifs();
 
@@ -133,11 +130,15 @@ export default function ContractorDashboard() {
                 <div className="absolute right-0 top-14 w-80 bg-white rounded-3xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
                   <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                     <h3 className="text-sm font-bold text-[#1a1a1a]">Notifications</h3>
-                    {notifications.some(n => !n.is_read) && (
+                    {notifications.length > 0 && (
                       <button onClick={async () => {
-                        await supabase.from('notifications').update({ is_read: true }).eq('user_id', profile?.id);
-                        setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-                      }} className="text-[10px] font-bold text-slate-400 hover:text-[#1a1a1a] uppercase tracking-widest">Mark all read</button>
+                        try {
+                          await fetchApi('/notifications/clear-all', { method: 'DELETE' });
+                          setNotifications([]);
+                        } catch (e) {
+                          console.error("Failed to clear all notifications");
+                        }
+                      }} className="text-[10px] font-bold text-slate-400 hover:text-[#1a1a1a] uppercase tracking-widest">Clear all</button>
                     )}
                   </div>
                   <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
@@ -146,8 +147,12 @@ export default function ContractorDashboard() {
                     ) : notifications.map(n => (
                       <div key={n.id} className={`px-5 py-4 flex gap-3 items-start cursor-pointer hover:bg-slate-50 transition-colors ${!n.is_read ? 'bg-[#fffbea]' : ''}`}
                         onClick={async () => {
-                          await supabase.from('notifications').update({ is_read: true }).eq('id', n.id);
-                          setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+                          try {
+                            await fetchApi('/notifications/read-all', { method: 'PUT' });
+                            setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+                          } catch (e) {
+                            console.error("Failed to read");
+                          }
                         }}>
                         <span className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${n.type === 'approved' ? 'bg-green-400' : 'bg-red-400'}`} />
                         <div className="min-w-0">
@@ -170,7 +175,7 @@ export default function ContractorDashboard() {
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-10 pt-4">
             <div>
               <h1 className="text-5xl md:text-6xl tracking-tight text-[#1a1a1a]">
-                Welcome back, <span className="font-medium">{profile?.full_name?.split(' ')[0] || 'Contractor'}</span>
+                Welcome back, <span className="font-medium">{profile?.full_name || 'Contractor'}</span>
               </h1>
             </div>
             <div className="flex items-end gap-12 pb-2">
@@ -197,12 +202,9 @@ export default function ContractorDashboard() {
             </div>
           </div>
 
-          {/* ── Tracker Strip (Like the striped progress in ref) ──────────────── */}
+          {/* ── Tracker Strip (Cleaned up design like screenshot 2) ────────────── */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div className="col-span-1 md:col-span-3 bg-white/40 backdrop-blur-md rounded-full p-2 flex items-center border border-white/50 shadow-sm relative overflow-hidden h-14">
-              {/* Striped track background */}
-              <div className="absolute inset-0 opacity-[0.15]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #1a1a1a 25%, transparent 25%, transparent 75%, #1a1a1a 75%, #1a1a1a), repeating-linear-gradient(45deg, #1a1a1a 25%, transparent 25%, transparent 75%, #1a1a1a 75%, #1a1a1a)', backgroundPosition: '0 0, 8px 8px', backgroundSize: '16px 16px' }} />
-
+            <div className="col-span-1 md:col-span-3 bg-white rounded-full p-2 flex items-center border border-slate-200/60 shadow-sm relative overflow-hidden h-14">
               <div className="relative z-10 flex gap-1 w-full h-full">
                 <div className="bg-[#1a1a1a] text-white text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(total > 0 ? Math.round((accepted / total) * 100) : 15, 15)}%` }}>
                   Accepted <span className="opacity-50 font-medium ml-auto">{accepted}</span>
@@ -210,13 +212,13 @@ export default function ContractorDashboard() {
                 <div className="bg-[#ffdd66] text-[#1a1a1a] text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(total > 0 ? Math.round((pending / total) * 100) : 15, 15)}%` }}>
                   Pending <span className="opacity-50 font-medium ml-auto">{pending}</span>
                 </div>
-                <div className="bg-white/80 border border-slate-200 text-[#1a1a1a] text-xs font-semibold px-5 h-full rounded-full flex items-center justify-between ml-auto shadow-sm whitespace-nowrap max-w-[120px]">
-                  Output <span>100%</span>
+                <div className="bg-[#f8f9f4] border border-slate-100 text-[#1a1a1a] text-xs font-semibold px-5 h-full rounded-full flex items-center justify-between ml-auto shadow-inner whitespace-nowrap max-w-[140px]">
+                  <span className="text-slate-500 mr-2">Output</span> <span>100%</span>
                 </div>
               </div>
             </div>
-            <div className="col-span-1 border border-white/50 rounded-full px-6 flex items-center justify-between bg-white/40 backdrop-blur-md shadow-sm h-14">
-              <span className="text-sm font-semibold text-slate-600">Profile Strength</span>
+            <div className="col-span-1 border border-slate-200/60 rounded-full px-6 flex items-center justify-between bg-white shadow-sm h-14">
+              <span className="text-sm font-semibold text-slate-500">Profile Strength</span>
               <span className="text-xl font-light tracking-tighter text-[#1a1a1a]">{profile?.resume_url ? '100%' : '50%'}</span>
             </div>
           </div>

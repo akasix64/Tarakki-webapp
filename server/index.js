@@ -24,9 +24,13 @@ app.get('/api/health', (req, res) => {
 // Import modular routes
 const applicationsRouter = require('./routes/applications');
 const projectsRouter = require('./routes/projects');
+const profilesRouter = require('./routes/profiles');
+const notificationsRouter = require('./routes/notifications');
 
 app.use('/api/applications', applicationsRouter(supabase));
 app.use('/api/projects', projectsRouter(supabase));
+app.use('/api/profiles', profilesRouter(supabase));
+app.use('/api/notifications', notificationsRouter(supabase));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

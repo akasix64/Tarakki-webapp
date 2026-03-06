@@ -74,10 +74,35 @@ module.exports = (supabase) => {
                 .from('applications')
                 .update({ status })
                 .eq('id', id)
-                .select()
+                .select(`
+                    *,
+                    projects ( title )
+                `)
                 .single();
 
             if (error) throw error;
+
+            // Notification side effect
+            if (status === 'approved' || status === 'rejected') {
+                try {
+                    const titleStr = data?.projects?.title || 'a project';
+                    const notifTitle = status === 'approved' ? '🎉 Application Approved!' : '❌ Application Rejected';
+                    const notifMsg = status === 'approved'
+                        ? `Your application for "${titleStr}" has been approved by the admin.`
+                        : `Unfortunately, your application for "${titleStr}" has been rejected.`;
+
+                    await supabase.from('notifications').insert({
+                        user_id: data.user_id,
+                        title: notifTitle,
+                        message: notifMsg,
+                        type: status,
+                        is_read: false
+                    });
+                } catch (notifErr) {
+                    console.error("Failed to create application status notification:", notifErr);
+                }
+            }
+
             res.json(data);
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -102,10 +127,34 @@ module.exports = (supabase) => {
             const { data, error } = await insertClient
                 .from('applications')
                 .insert([{ user_id, project_id, cover_letter, expected_rate, availability, status }])
-                .select()
+                .select(`
+                    *,
+                    profiles ( full_name ),
+                    projects ( title )
+                `)
                 .single();
 
             if (error) throw error;
+
+            // Notification side effect: Notify admins
+            try {
+                const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin');
+                if (admins && admins.length > 0) {
+                    const applicantName = data?.profiles?.full_name || 'A user';
+                    const projTitle = data?.projects?.title || 'a project';
+                    const notificationsPayload = admins.map(admin => ({
+                        user_id: admin.id,
+                        title: 'New Application Received',
+                        message: `${applicantName} has applied for "${projTitle}".`,
+                        type: 'application',
+                        is_read: false
+                    }));
+                    await supabase.from('notifications').insert(notificationsPayload);
+                }
+            } catch (notifErr) {
+                console.error("Failed to insert admin notifications:", notifErr);
+            }
+
             res.status(201).json(data);
         } catch (err) {
             res.status(500).json({ error: err.message });

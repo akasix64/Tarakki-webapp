@@ -36,6 +36,7 @@ export default function Signup() {
           data: {
             role,
             full_name: name,
+            ...(role === 'startup' ? { gst_number: gstNumber } : {}),
           }
         }
       });
@@ -73,6 +74,11 @@ export default function Signup() {
 
   const handleGoogleSignup = async () => {
     try {
+      // Save choices to localStorage so we can recover them after Google redirect
+      localStorage.setItem('pending_role', role);
+      if (name) localStorage.setItem('pending_name', name);
+      if (gstNumber && role === 'startup') localStorage.setItem('pending_gst', gstNumber);
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -129,8 +135,8 @@ export default function Signup() {
               type="button"
               onClick={() => setRole('contractor')}
               className={`flex-1 flex flex-col items-center justify-center p-4 rounded-xl transition-all duration-300 font-bold ${role === 'contractor'
-                  ? 'bg-[#1a1a1a] text-white shadow-lg scale-[1.02]'
-                  : 'text-[#1a1a1a]/50 hover:bg-white/50 hover:text-[#1a1a1a]'
+                ? 'bg-[#1a1a1a] text-white shadow-lg scale-[1.02]'
+                : 'text-[#1a1a1a]/50 hover:bg-white/50 hover:text-[#1a1a1a]'
                 }`}
             >
               <User className={`h-6 w-6 mb-2 ${role === 'contractor' ? 'text-[#ffdd66]' : ''}`} />
@@ -140,8 +146,8 @@ export default function Signup() {
               type="button"
               onClick={() => setRole('startup')}
               className={`flex-1 flex flex-col items-center justify-center p-4 rounded-xl transition-all duration-300 font-bold ${role === 'startup'
-                  ? 'bg-[#1a1a1a] text-white shadow-lg scale-[1.02]'
-                  : 'text-[#1a1a1a]/50 hover:bg-white/50 hover:text-[#1a1a1a]'
+                ? 'bg-[#1a1a1a] text-white shadow-lg scale-[1.02]'
+                : 'text-[#1a1a1a]/50 hover:bg-white/50 hover:text-[#1a1a1a]'
                 }`}
             >
               <Building2 className={`h-6 w-6 mb-2 ${role === 'startup' ? 'text-[#ffdd66]' : ''}`} />
