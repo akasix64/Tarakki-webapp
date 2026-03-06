@@ -64,7 +64,29 @@ export default function Landing() {
           transition={{ duration: 0.6, delay: 0.1 }}
         >
           Innovating Enterprise Solutions <span className="font-medium inline-block relative">
-            Oracle journey.
+            {['O','r','a','c','l','e'].map((letter, i) => (
+              <motion.span
+                key={i}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.5 + i * 0.12 }}
+                className="inline-block"
+                style={{ marginRight: i < 5 ? '0.05em' : 0 }}
+              >
+                {letter}
+              </motion.span>
+            ))}
+            {' '}{['j','o','u','r','n','e','y','.'].map((letter, i) => (
+              <motion.span
+                key={`j${i}`}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 1.22 + i * 0.1 }}
+                className="inline-block"
+              >
+                {letter}
+              </motion.span>
+            ))}
             <svg className="absolute -bottom-2 left-0 w-full h-3 text-[#ffdd66]" viewBox="0 0 100 12" preserveAspectRatio="none">
               <path d="M0,10 Q50,0 100,10" stroke="currentColor" strokeWidth="8" fill="none" strokeLinecap="round" />
             </svg>

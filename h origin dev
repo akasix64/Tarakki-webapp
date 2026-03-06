@@ -1,0 +1,5 @@
+[33m487c703[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mdev[m[33m)[m feat: migrate backend from Node.js/Express to Python/Flask with direct Supabase REST API
+[33m4828355[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/dev[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m feat: complete Tarakki webapp with role persistence, API migration, and profile photo integration
+[33mc75adc2[m[33m ([m[1;31morigin/feature/admin-dashboard-dialogs[m[33m)[m Admin dashboard profile and application dialogue boxes added
+[33m7720446[m[33m ([m[1;31morigin/google-login[m[33m, [m[1;32mgoogle-login[m[33m)[m feat: complete dashboard fix and implement projects page search
+[33m988f266[m added google login

@@ -35,7 +35,7 @@ export default function MainLayout() {
             <span className="font-bold text-xl tracking-tight text-neutral-900">Oracle Contracts</span>
           </Link>
           <nav className="flex items-center space-x-7">
-            <Link to="/projects" className="text-sm font-medium text-neutral-600 hover:text-neutral-900">Projects</Link>
+            {/* <Link to="/projects" className="text-sm font-medium text-neutral-600 hover:text-neutral-900">Projects</Link> */}
             {session ? (
               <>
                 <Link to="/dashboard" className="text-sm font-medium text-neutral-600 hover:text-neutral-900">Dashboard</Link>
