@@ -6,17 +6,20 @@ import {
   Plus, Users, Briefcase, Activity, X, Check, Trash2,
   LayoutDashboard, FolderOpen, ChevronRight, Bell, Settings,
   UserCircle, Menu, TrendingUp, ShieldCheck, Phone, CreditCard, Mail,
-  MapPin, Globe, FileText, Building2, Calendar, Star, Hash
+  MapPin, Globe, FileText, Building2, Calendar, Star, Hash, Search, SlidersHorizontal
 } from 'lucide-react';
+import AdminAnalytics from '../components/AdminAnalytics';
+import AdminFinanceLogs from '../components/AdminFinanceLogs';
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'projects' | 'users' | 'applications' | 'profile'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'projects' | 'users' | 'applications' | 'profile' | 'finance_logs'>('overview');
   const [stats, setStats] = useState({ contractors: 0, startups: 0, projects: 0, applications: 0 });
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [selectedApplication, setSelectedApplication] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [applications, setApplications] = useState<any[]>([]);
+  const [subscriptionLogs, setSubscriptionLogs] = useState<any[]>([]);
   const [applicationsLoading, setApplicationsLoading] = useState(false);
   const [adminProfile, setAdminProfile] = useState<any>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -26,9 +29,55 @@ export default function AdminDashboard() {
   const [profileForm, setProfileForm] = useState({ full_name: '', phone: '' });
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [newProject, setNewProject] = useState({
-    title: '', description: '', location: '', type: 'Contract', budget: '', tags: ''
+    title: '', description: '', location: '', type: 'Contract', budget: '', tags: '', hourly_rate: '', monthly_rate: '', deadline: ''
   });
+  const [loading, setLoading] = useState(true);
+  
+  // Profile Match Search State
+  const [showUserFilters, setShowUserFilters] = useState(false);
+  const [userFilters, setUserFilters] = useState({
+    roleSkills: '',
+    location: '',
+    experience: ''
+  });
+  
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkAdmin = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        navigate('/login');
+        return;
+      }
+
+      // 1. Check if email is admin email
+      const isAdminEmail = session.user.email === 'egisedge@tarakki.com' || session.user.email?.includes('egisedge');
+      
+      // 2. Check if user is in profiles table with admin role
+      let isAdminRole = false;
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', session.user.id)
+        .single();
+      
+      if (profile && profile.role === 'admin') {
+        isAdminRole = true;
+      }
+
+      if (!isAdminEmail && !isAdminRole) {
+        // Kick them back to their appropriate dashboard switcher
+        navigate('/dashboard');
+        return;
+      }
+
+      setLoading(false);
+    };
+
+    checkAdmin();
+  }, [navigate]);
 
   const fetchData = async () => {
     try {
@@ -73,6 +122,15 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchSubscriptionLogs = async () => {
+    try {
+      const logs = await fetchApi('/subscriptions/logs');
+      setSubscriptionLogs(logs || []);
+    } catch (err) {
+      console.error('Error fetching subscription logs:', err);
+    }
+  };
+
   useEffect(() => {
     const fetchNotifications = async () => {
       try {
@@ -86,6 +144,7 @@ export default function AdminDashboard() {
     fetchData();
     fetchApplications();
     fetchNotifications();
+    fetchSubscriptionLogs();
 
     // Fetch admin's own profile via Auth and API
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -152,7 +211,7 @@ export default function AdminDashboard() {
         })
       });
       setIsProjectModalOpen(false);
-      setNewProject({ title: '', description: '', location: '', type: 'Contract', budget: '', tags: '' });
+      setNewProject({ title: '', description: '', location: '', type: 'Contract', budget: '', tags: '', hourly_rate: '', monthly_rate: '', deadline: '' });
       fetchData(); // refresh list
     } catch (err) {
       alert('Failed to create project: ' + (err as Error).message);
@@ -204,6 +263,14 @@ export default function AdminDashboard() {
   };
 
   const modalInputCls = "w-full h-14 px-5 text-sm bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:border-transparent placeholder:text-slate-400 text-[#1a1a1a] transition-all";
+  
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#f8f9f4]">
+        <Activity className="w-10 h-10 animate-spin text-[#1a1a1a]" />
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-7xl mx-auto py-8">
@@ -216,9 +283,19 @@ export default function AdminDashboard() {
             <button onClick={() => setActiveTab('projects')} className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${activeTab === 'projects' ? 'bg-[#1a1a1a] text-white shadow-md' : 'text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a]'}`}>Projects</button>
             <button onClick={() => setActiveTab('users')} className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${activeTab === 'users' ? 'bg-[#1a1a1a] text-white shadow-md' : 'text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a]'}`}>Users</button>
             <button onClick={() => setActiveTab('applications')} className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${activeTab === 'applications' ? 'bg-[#1a1a1a] text-white shadow-md' : 'text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a]'}`}>Applications</button>
+            <button onClick={() => setActiveTab('finance_logs')} className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${activeTab === 'finance_logs' ? 'bg-[#1a1a1a] text-white shadow-md' : 'text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a]'}`}>Finance & Logs</button>
             <button onClick={() => setActiveTab('profile')} className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${activeTab === 'profile' ? 'bg-[#ffdd66] text-[#1a1a1a] shadow-md' : 'text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a]'}`}>Profile</button>
           </div>
           <div className="flex items-center gap-3">
+            <button 
+              onClick={() => {
+                setActiveTab('users');
+                setShowUserFilters(true);
+              }}
+              className="flex px-4 md:px-6 py-2 md:py-2.5 rounded-full text-xs md:text-sm font-bold bg-white text-[#1a1a1a] hover:bg-[#1a1a1a] hover:text-[#ffdd66] border border-white/60 transition-all shadow-sm items-center gap-1.5 md:gap-2 active:scale-95 whitespace-nowrap"
+            >
+              <Search className="w-3.5 h-3.5 md:w-4 md:h-4" /> Perfect Profile Match
+            </button>
             <button onClick={() => setIsProjectModalOpen(true)} className="hidden md:flex px-6 py-2.5 rounded-full text-sm font-bold bg-[#ffdd66] text-[#1a1a1a] hover:bg-[#ffe17a] transition-all shadow-sm items-center gap-2 active:scale-95">
               <Plus className="w-4 h-4" /> Post Project
             </button>
@@ -357,8 +434,42 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
+                {/* Employees Card */}
+                <div className="bg-white/60 backdrop-blur-md rounded-[2rem] p-8 border border-white/40 shadow-sm flex flex-col hover:border-white/80 transition-all">
+                  <div className="w-12 h-12 rounded-2xl bg-[#1a1a1a]/5 flex items-center justify-center mb-6">
+                    <Users className="w-6 h-6 text-[#1a1a1a]" />
+                  </div>
+                  <h3 className="text-4xl font-light text-[#1a1a1a] mb-2 tracking-tight">{totalUsers}</h3>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Total Employees</p>
+                </div>
+
+                {/* Contractors Card */}
+                <div className="bg-white/60 backdrop-blur-md rounded-[2rem] p-8 border border-white/40 shadow-sm flex flex-col hover:border-white/80 transition-all">
+                  <div className="w-12 h-12 rounded-2xl bg-[#1a1a1a]/5 flex items-center justify-center mb-6">
+                    <Briefcase className="w-6 h-6 text-[#1a1a1a]" />
+                  </div>
+                  <h3 className="text-4xl font-light text-[#1a1a1a] mb-2 tracking-tight">{stats.contractors}</h3>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Contractors</p>
+                </div>
+
+                {/* Startups Card */}
+                <div className="bg-white/60 backdrop-blur-md rounded-[2rem] p-8 border border-white/40 shadow-sm flex flex-col hover:border-white/80 transition-all">
+                  <div className="w-12 h-12 rounded-2xl bg-[#ffdd66]/20 flex items-center justify-center mb-6">
+                    <Building2 className="w-6 h-6 text-[#ffdd66]" />
+                  </div>
+                  <h3 className="text-4xl font-light text-[#1a1a1a] mb-2 tracking-tight">{stats.startups}</h3>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Startups</p>
+                </div>
+              </div>
+
+              {/* ── Additional Analytics & Recent Registrations ─────────────────────────── */}
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
+                <div className="xl:col-span-2">
+                  <AdminAnalytics projects={projects} applications={applications} users={users} />
+                </div>
+
                 {/* Users Overview block */}
-                <div className="sm:col-span-2 lg:col-span-3 bg-[#1a1a1a] rounded-[2rem] p-8 md:p-10 shadow-xl shadow-black/10 relative overflow-hidden group border border-white/5">
+                <div className="xl:col-span-1 bg-[#1a1a1a] rounded-[2rem] p-8 md:p-10 shadow-xl shadow-black/10 relative overflow-hidden group border border-white/5 h-full">
                   <div className="absolute -top-32 -right-32 w-80 h-80 bg-white/5 rounded-full blur-3xl pointer-events-none transition-transform group-hover:scale-110 duration-700" />
                   <div className="absolute -bottom-32 -left-32 w-80 h-80 bg-[#ffdd66]/5 rounded-full blur-3xl pointer-events-none transition-transform group-hover:scale-110 duration-700" />
 
@@ -417,7 +528,7 @@ export default function AdminDashboard() {
                   <table className="min-w-full">
                     <thead>
                       <tr className="border-b border-white/10 bg-white/5">
-                        {['Project Name', 'Type / Location', 'Budget', 'Status', 'Actions'].map(h => (
+                        {['Project Name', 'Type / Location', 'Budget', 'Status / Deadline', 'Actions'].map(h => (
                           <th key={h} className="px-6 md:px-8 py-5 text-left text-[10px] font-bold uppercase tracking-widest text-white/50">{h}</th>
                         ))}
                       </tr>
@@ -439,14 +550,24 @@ export default function AdminDashboard() {
                             <p className="text-sm font-semibold text-white/80">{p.type}</p>
                             <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mt-1">{p.location}</p>
                           </td>
-                          <td className="px-6 md:px-8 py-5 text-sm font-bold text-[#ffdd66] whitespace-nowrap">{p.budget}</td>
+                          <td className="px-6 md:px-8 py-5 text-sm font-bold text-[#ffdd66] whitespace-nowrap">
+                            <div className="flex flex-col gap-1">
+                              {p.budget && <span>Fixed: {p.budget}</span>}
+                              {p.hourly_rate && <span>Hourly: {p.hourly_rate}</span>}
+                              {p.monthly_rate && <span>Monthly: {p.monthly_rate}</span>}
+                              {(!p.budget && !p.hourly_rate && !p.monthly_rate) && <span>—</span>}
+                            </div>
+                          </td>
                           <td className="px-6 md:px-8 py-5">
-                            <span className={`text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${p.status === 'Open'
-                              ? 'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20'
-                              : 'bg-white/10 text-white/50 border-white/10'
-                              }`}>
-                              {p.status || 'Open'}
-                            </span>
+                            <div className="flex flex-col gap-2 items-start">
+                              <span className={`text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border inline-block ${p.status === 'Open'
+                                ? 'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20'
+                                : 'bg-white/10 text-white/50 border-white/10'
+                                }`}>
+                                {p.status || 'Open'}
+                              </span>
+                              {p.deadline && <span className="text-[10px] font-medium text-red-300">Due: {new Date(p.deadline).toLocaleDateString()}</span>}
+                            </div>
                           </td>
                           <td className="px-6 md:px-8 py-5">
                             <button onClick={() => handleDeleteProject(p.id)} className="opacity-0 group-hover:opacity-100 p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all">
@@ -478,60 +599,147 @@ export default function AdminDashboard() {
               <div className="absolute -bottom-32 -left-32 w-80 h-80 bg-[#ffdd66]/5 rounded-full blur-3xl pointer-events-none transition-transform group-hover:scale-110 duration-700" />
 
               <div className="relative z-10">
-                <div className="px-6 md:px-8 py-8 border-b border-white/10 flex items-center justify-between">
+                <div className="px-6 md:px-8 py-8 border-b border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-bold text-white">Registered Users</h2>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mt-1">{users.length} Total Accounts</p>
                   </div>
+                  <button 
+                    onClick={() => setShowUserFilters(!showUserFilters)}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold bg-[#ffdd66] text-[#1a1a1a] hover:bg-[#ffe17a] transition-all active:scale-95 shadow-md"
+                  >
+                    <Search className="w-4 h-4" /> Perfect Profile Match
+                  </button>
                 </div>
+
+                {/* Profile Match Filters */}
+                {showUserFilters && (
+                  <div className="px-6 md:px-8 py-6 bg-white/5 border-b border-white/10 flex flex-col md:flex-row gap-4 items-end animate-in fade-in slide-in-from-top-2">
+                    <div className="flex-1 w-full">
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2 pl-2">Role / Skills (e.g. HCM, SCM, Oracle Apex)</label>
+                      <input 
+                        type="text" 
+                        value={userFilters.roleSkills} 
+                        onChange={(e) => setUserFilters({...userFilters, roleSkills: e.target.value})}
+                        className="w-full h-12 px-4 rounded-xl bg-black/20 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-[#ffdd66] transition-colors"
+                        placeholder="Search roles or skills..."
+                      />
+                    </div>
+                    <div className="flex-1 w-full">
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2 pl-2">Location</label>
+                      <input 
+                        type="text" 
+                        value={userFilters.location} 
+                        onChange={(e) => setUserFilters({...userFilters, location: e.target.value})}
+                        className="w-full h-12 px-4 rounded-xl bg-black/20 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-[#ffdd66] transition-colors"
+                        placeholder="e.g. Remote, India..."
+                      />
+                    </div>
+                    <div className="w-full md:w-48">
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2 pl-2">Min. Experience (Yrs)</label>
+                      <input 
+                        type="number" 
+                        value={userFilters.experience} 
+                        onChange={(e) => setUserFilters({...userFilters, experience: e.target.value})}
+                        className="w-full h-12 px-4 rounded-xl bg-black/20 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-[#ffdd66] transition-colors"
+                        placeholder="e.g. 3"
+                        min="0"
+                      />
+                    </div>
+                    <button 
+                      onClick={() => setUserFilters({roleSkills: '', location: '', experience: ''})}
+                      className="h-12 px-6 rounded-xl bg-white/10 text-white font-bold text-sm hover:bg-white/20 transition-colors"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+
                 <div className="overflow-x-auto">
                   <table className="min-w-full">
                     <thead>
                       <tr className="border-b border-white/10 bg-white/5">
-                        {['User Identity', 'Account Type', 'Membership', 'Date Joined'].map(h => (
+                        {['User Identity', 'Account Details', 'Membership', 'Date Joined'].map(h => (
                           <th key={h} className="px-6 md:px-8 py-5 text-left text-[10px] font-bold uppercase tracking-widest text-white/50">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
-                      {users.map(user => (
-                        <tr key={user.id} onClick={() => setSelectedUser(user)} className="hover:bg-white/5 transition-colors cursor-pointer group">
-                          <td className="px-6 md:px-8 py-5">
-                            <div className="flex items-center gap-4">
-                              {avatar(user.full_name, user.email, true)}
-                              <div className="min-w-0">
-                                <p className="text-sm font-bold text-white truncate group-hover:text-[#ffdd66] transition-colors">{user.full_name || 'Anonymous User'}</p>
-                                <p className="text-[11px] text-white/40 truncate mt-0.5">{user.email}</p>
+                      {(() => {
+                        const filteredUsers = users.filter((u: any) => {
+                          if (!showUserFilters) return true;
+                          
+                          const roleQ = userFilters.roleSkills.toLowerCase().trim();
+                          const matchRole = !roleQ ||
+                            u.role?.toLowerCase().includes(roleQ) ||
+                            (u.skills && u.skills.some((s: string) => s.toLowerCase().includes(roleQ))) ||
+                            u.full_name?.toLowerCase().includes(roleQ);
+
+                          const locQ = userFilters.location.toLowerCase().trim();
+                          const matchLoc = !locQ || (u.location && u.location.toLowerCase().includes(locQ));
+
+                          const expQ = parseInt(userFilters.experience);
+                          const userExp = u.experience_years ? parseInt(u.experience_years) : 0;
+                          const matchExp = isNaN(expQ) || userExp >= expQ;
+
+                          return matchRole && matchLoc && matchExp;
+                        });
+
+                        if (filteredUsers.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={4}>
+                                <div className="py-24 text-center">
+                                  <Users className="w-12 h-12 text-white/20 mx-auto mb-4" />
+                                  <p className="text-sm font-bold text-white/50">No users found</p>
+                                  {showUserFilters && <p className="text-xs text-white/30 mt-2">Try adjusting your profile match filters.</p>}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return filteredUsers.map((user: any) => (
+                          <tr key={user.id} onClick={() => setSelectedUser(user)} className="hover:bg-white/5 transition-colors cursor-pointer group">
+                            <td className="px-6 md:px-8 py-5">
+                              <div className="flex items-center gap-4">
+                                {avatar(user.full_name, user.email, true)}
+                                <div className="min-w-0">
+                                  <p className="text-sm font-bold text-white truncate group-hover:text-[#ffdd66] transition-colors">{user.full_name || 'Anonymous User'}</p>
+                                  <p className="text-[11px] text-white/40 truncate mt-0.5">{user.email}</p>
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                          <td className="px-6 md:px-8 py-5">
-                            <span className={`text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full ${user.role === 'startup' ? 'bg-[#ffdd66]/10 text-[#ffdd66] border border-[#ffdd66]/20' : 'bg-white/10 text-white border border-white/20'}`}>
-                              {user.role}
-                            </span>
-                          </td>
-                          <td className="px-6 md:px-8 py-5">
-                            {user.is_member ? (
-                              <span className="flex items-center gap-1.5 text-xs font-bold text-[#ffdd66]">
-                                <ShieldCheck className="w-4 h-4" /> Pro Member
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Free Plan</span>
-                            )}
-                          </td>
-                          <td className="px-6 md:px-8 py-5 text-[11px] font-semibold text-white/60 tracking-wider">
-                            {new Date(user.created_at).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' })}
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="px-6 md:px-8 py-5">
+                              <div className="flex flex-col gap-1.5">
+                                <span className={`w-fit text-[9px] font-bold uppercase tracking-widest px-3 py-1 rounded-full ${user.role === 'startup' ? 'bg-[#ffdd66]/10 text-[#ffdd66] border border-[#ffdd66]/20' : 'bg-white/10 text-white border border-white/20'}`}>
+                                  {user.role}
+                                </span>
+                                {(user.skills?.length > 0 || user.experience_years) && (
+                                  <div className="text-[10px] text-white/60">
+                                    {user.experience_years && <span className="mr-2">{user.experience_years} yrs exp.</span>}
+                                    {user.skills?.length > 0 && <span>{user.skills[0]}{user.skills.length > 1 ? ` +${user.skills.length - 1}` : ''}</span>}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 md:px-8 py-5">
+                              {user.is_member ? (
+                                <span className="flex items-center gap-1.5 text-xs font-bold text-[#ffdd66]">
+                                  <ShieldCheck className="w-4 h-4" /> Pro Member
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Free Plan</span>
+                              )}
+                            </td>
+                            <td className="px-6 md:px-8 py-5 text-[11px] font-semibold text-white/60 tracking-wider">
+                              {new Date(user.created_at).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </td>
+                          </tr>
+                        ));
+                      })()}
                     </tbody>
                   </table>
-                  {users.length === 0 && (
-                    <div className="py-24 text-center">
-                      <Users className="w-12 h-12 text-white/20 mx-auto mb-4" />
-                      <p className="text-sm font-bold text-white/50">No users found</p>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -648,6 +856,16 @@ export default function AdminDashboard() {
                 )}
               </div>
             </div>
+          )}
+
+          {/* ── FINANCE & LOGS TAB ───────────────────────────────────────── */}
+          {activeTab === 'finance_logs' && (
+            <AdminFinanceLogs 
+              projects={projects} 
+              applications={applications} 
+              users={users} 
+              subscriptionLogs={subscriptionLogs}
+            />
           )}
 
           {/* ── PROFILE TAB ─────────────────────────────────────────── */}
@@ -819,13 +1037,29 @@ export default function AdminDashboard() {
                     </select>
                   </div>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-widest text-[#1a1a1a]/60 mb-2 pl-2">Budget / Rate</label>
-                  <input required type="text" value={newProject.budget} onChange={e => setNewProject({ ...newProject, budget: e.target.value })} className={modalInputCls} placeholder="₹50,000/month or ₹5,00,000 fixed" />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-[#1a1a1a]/60 mb-2 pl-2">Fixed Budget</label>
+                    <input type="text" value={newProject.budget} onChange={e => setNewProject({ ...newProject, budget: e.target.value })} className={modalInputCls} placeholder="e.g. ₹5,00,000 fixed" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-[#1a1a1a]/60 mb-2 pl-2">Hourly Rate</label>
+                    <input type="text" value={newProject.hourly_rate} onChange={e => setNewProject({ ...newProject, hourly_rate: e.target.value })} className={modalInputCls} placeholder="e.g. ₹500/hr" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-[#1a1a1a]/60 mb-2 pl-2">Monthly Rate</label>
+                    <input type="text" value={newProject.monthly_rate} onChange={e => setNewProject({ ...newProject, monthly_rate: e.target.value })} className={modalInputCls} placeholder="e.g. ₹50,000/mo" />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-widest text-[#1a1a1a]/60 mb-2 pl-2">Tags <span className="normal-case font-normal">(comma-separated)</span></label>
-                  <input type="text" value={newProject.tags} onChange={e => setNewProject({ ...newProject, tags: e.target.value })} className={modalInputCls} placeholder="Oracle DBA, OCI, Migration" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-[#1a1a1a]/60 mb-2 pl-2">Tags <span className="normal-case font-normal">(comma-separated)</span></label>
+                    <input type="text" value={newProject.tags} onChange={e => setNewProject({ ...newProject, tags: e.target.value })} className={modalInputCls} placeholder="Oracle DBA, OCI, Migration" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-[#1a1a1a]/60 mb-2 pl-2">Last Applied Date</label>
+                    <input type="date" value={newProject.deadline} onChange={e => setNewProject({ ...newProject, deadline: e.target.value })} className={modalInputCls} />
+                  </div>
                 </div>
               </form>
             </div>

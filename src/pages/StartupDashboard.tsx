@@ -14,15 +14,29 @@ const NAV = [
 ];
 
 export default function StartupDashboard() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'projects'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'projects' | 'applications' | 'community' | 'profile' | 'finance_logs'>('overview');
   const [profile, setProfile] = useState<any>(null);
   const [projects, setProjects] = useState<any[]>([]);
   const [applications, setApplications] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [aiMatches, setAiMatches] = useState<any[] | null>(null);
+  const [isMatching, setIsMatching] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+
+  const isMemberActive = (p: any) => {
+    if (!p?.is_member) return false;
+    // Strict check: Only active if a date exists (prevents bulk activation errors)
+    if (!p?.subscription_date) return false; 
+    const subDate = new Date(p.subscription_date);
+    const expDate = new Date(subDate);
+    expDate.setFullYear(expDate.getFullYear() + 1);
+    return new Date() < expDate;
+  };
+
+  const isActive = isMemberActive(profile);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -111,6 +125,28 @@ export default function StartupDashboard() {
     if (s === 'Completed') return 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
     if (s === 'In Progress') return 'bg-blue-500/10 text-blue-400 border border-blue-500/20';
     return 'bg-[#ffdd66]/10 text-[#ffdd66] border border-[#ffdd66]/20';
+  };
+
+  const handleAiMatch = async () => {
+    if (!profile?.id) return;
+    setIsMatching(true);
+    setAiMatches(null);
+    try {
+      const resp = await fetchApi(`/ai-match/${profile.id}`, {
+        method: 'POST',
+        body: JSON.stringify({ role: 'startup' })
+      });
+      if (resp?.matches) {
+        setAiMatches(resp.matches);
+      } else {
+        setAiMatches([]);
+      }
+    } catch (e) {
+      console.error(e);
+      setAiMatches([]);
+    } finally {
+      setIsMatching(false);
+    }
   };
 
   return (
@@ -231,12 +267,68 @@ export default function StartupDashboard() {
               </div>
             </div>
           </div>
-          <div className="col-span-1 border border-white/50 rounded-full px-6 flex items-center justify-between bg-white/40 backdrop-blur-md shadow-sm h-14">
+          <div 
+            onClick={() => !isActive && navigate('/subscription')}
+            className={`col-span-1 border border-white/50 rounded-full px-6 flex items-center justify-between bg-white/40 backdrop-blur-md shadow-sm h-14 ${!isActive ? 'cursor-pointer hover:border-[#ffdd66] hover:bg-white/60 transition-colors' : ''}`}
+          >
             <span className="text-sm font-semibold text-slate-600">Plan</span>
-            <span className="text-xl font-light tracking-tighter text-[#1a1a1a]">
-              {profile?.is_member ? <CheckCircle className="w-5 h-5 text-emerald-500" /> : 'Free'}
+            <span className="text-xl font-light tracking-tighter text-[#1a1a1a] flex items-center">
+              {isActive ? <><CheckCircle className="w-5 h-5 text-emerald-500 mr-1" /> Pro</> : <span className="bg-[#ffdd66] text-[#1a1a1a] text-xs font-bold px-4 py-1.5 rounded-full uppercase tracking-widest shadow-[0_0_15px_rgba(255,221,102,0.6)] animate-pulse border border-[#e6c75c]">{profile?.subscription_date ? 'Expired — Renew' : 'Free — Upgrade'}</span>}
             </span>
           </div>
+        </div>
+
+        {/* ── AI Matcher Section ────────────────────────────────────────────── */}
+        <div className="mb-8">
+          <button 
+            onClick={handleAiMatch} 
+            disabled={isMatching}
+            className="w-full relative overflow-hidden rounded-[2rem] p-6 text-left group bg-white shadow-sm hover:shadow-lg transition-all border border-slate-200 hover:border-[#ffdd66]"
+          >
+            <div className="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-[#ffdd66]/10 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            
+            <div className="relative z-10 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-bold text-[#1a1a1a] flex items-center gap-2">
+                  <span className="bg-[#1a1a1a] text-white p-2 rounded-xl">✨</span>
+                  Find Best Fit Contractors
+                </h3>
+                <p className="text-sm text-slate-500 mt-2 max-w-xl">
+                  Our AI scans thousands of contractors to find the perfect matches for your active open roles.
+                </p>
+              </div>
+              <div className="bg-[#ffdd66] px-6 py-3 rounded-full font-bold text-[#1a1a1a] shadow-sm group-hover:bg-[#1a1a1a] group-hover:text-[#ffdd66] transition-colors">
+                {isMatching ? 'Scanning...' : 'Find Matches'}
+              </div>
+            </div>
+          </button>
+
+          {/* AI Matches Display */}
+          {aiMatches && (
+            <div className="mt-6 bg-[#1a1a1a] p-8 rounded-[2rem] shadow-xl text-white relative overflow-hidden animate-in slide-in-from-top-4 duration-500">
+              <div className="absolute -top-32 -left-32 w-64 h-64 bg-[#ffdd66]/10 rounded-full blur-3xl"></div>
+              <h3 className="text-xl font-bold mb-6 relative z-10 text-[#ffdd66]">AI Top Recommended Contractors</h3>
+              
+              {aiMatches.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative z-10">
+                  {aiMatches.map((match: any, i: number) => (
+                    <div key={i} className="bg-white/5 border border-white/10 p-5 rounded-2xl hover:bg-white/10 transition-colors">
+                      <div className="flex justify-between items-start mb-3">
+                        <h4 className="font-bold text-lg truncate pr-4">{match.contractor?.name || 'Contractor'}</h4>
+                        <span className="bg-[#ffdd66] text-[#1a1a1a] text-xs font-bold px-3 py-1 rounded-full shrink-0">
+                          {match.match_score}% Match
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#ffdd66]/80 font-bold mb-2 break-words">Role: {match.project?.title}</p>
+                      <p className="text-sm text-white/70 leading-relaxed">{match.reason}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-white/60 relative z-10">We couldn't find any perfect matches right now. Check back later!</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── Main Dashboard Grid ───────────────────────────────────────────── */}

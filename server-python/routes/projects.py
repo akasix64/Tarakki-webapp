@@ -45,6 +45,9 @@ def create_project():
             "location": body.get("location"),
             "type": body.get("type"),
             "budget": body.get("budget"),
+            "hourly_rate": body.get("hourly_rate"),
+            "monthly_rate": body.get("monthly_rate"),
+            "deadline": body.get("deadline"),
             "tags": body.get("tags"),
         }
 
