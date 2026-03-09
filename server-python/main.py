@@ -23,7 +23,8 @@ from routes.projects import projects_bp
 from routes.profiles import profiles_bp
 from routes.notifications import notifications_bp
 from routes.resume_parser import resume_parser_bp
-
+from routes.ai_match import ai_match_bp
+from routes.subscriptions import subscriptions_bp
 
 # ---------- App Setup ----------
 
@@ -47,6 +48,8 @@ app.register_blueprint(projects_bp)
 app.register_blueprint(profiles_bp)
 app.register_blueprint(notifications_bp)
 app.register_blueprint(resume_parser_bp)
+app.register_blueprint(ai_match_bp)
+app.register_blueprint(subscriptions_bp)
 
 
 # ---------- CORS Initialization ----------

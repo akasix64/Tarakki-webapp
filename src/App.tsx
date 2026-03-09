@@ -13,6 +13,8 @@ import Projects from './pages/Projects';
 import Profile from './pages/Profile';
 import ApplyForm from './pages/ApplyForm';
 import ManageApplications from './pages/ManageApplications';
+import Subscription from './pages/Subscription';
+import AdminDashboard from './pages/AdminDashboard';
 
 export default function App() {
   return (
@@ -27,6 +29,8 @@ export default function App() {
           <Route path="apply/:projectId" element={<ApplyForm />} />
           <Route path="manage-applications" element={<ManageApplications />} />
           <Route path="profile" element={<Profile />} />
+          <Route path="subscription" element={<Subscription />} />
+          <Route path="admin" element={<AdminDashboard />} />
         </Route>
       </Routes>
     </BrowserRouter>

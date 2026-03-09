@@ -55,23 +55,36 @@ def get_profile(profile_id):
 
 @profiles_bp.route("/api/profiles/<profile_id>", methods=["PUT"])
 def update_profile(profile_id):
-    """Update (or upsert) a profile by ID."""
+    """Update a profile by ID."""
     token = require_token()
     updates = request.get_json()
-    updates["id"] = profile_id
 
     try:
-        data = db.upsert(
+        # Use update (PATCH) instead of upsert for safer partial updates
+        data = db.update(
             "profiles",
             updates,
+            filters={"id": profile_id},
             columns="*",
             token=token,
         )
 
         if not data:
+            # If update didn't find the record, try upserting as fallback
+            # (though normally profile exists if they are logged in)
+            updates["id"] = profile_id
+            data = db.upsert(
+                "profiles",
+                updates,
+                columns="*",
+                token=token,
+            )
+
+        if not data:
             return jsonify({"error": "Failed to update profile"}), 500
 
-        return jsonify(data)
+        # db.update returns a list, return the first item
+        return jsonify(data[0] if isinstance(data, list) else data)
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500

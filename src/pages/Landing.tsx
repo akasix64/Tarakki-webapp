@@ -162,9 +162,12 @@ export default function Landing() {
                         </div>
 
                         <div className={`relative z-10 flex items-end justify-between border-t pt-6 ${isDark ? 'border-white/10' : 'border-[#1a1a1a]/10'}`}>
-                          <div>
-                            <p className={`text-[10px] uppercase tracking-widest font-bold mb-1 ${isDark ? 'text-white/40' : 'text-[#1a1a1a]/40'}`}>Budget / Rate</p>
-                            <p className={`text-xl ${isDark ? 'font-medium text-[#ffdd66]' : 'font-bold text-[#1a1a1a]'}`}>{project.budget || 'Negotiable'}</p>
+                          <div className="flex flex-col gap-1 w-[70%]">
+                            <p className={`text-[10px] uppercase tracking-widest font-bold mb-1 ${isDark ? 'text-white/40' : 'text-[#1a1a1a]/40'}`}>Compensation</p>
+                            {project.budget && <p className={`truncate text-lg ${isDark ? 'text-[#ffdd66]' : 'font-bold text-[#1a1a1a]'}`}>YearlyBudget: {project.budget}/yr</p>}
+                            {project.hourly_rate && <p className={`truncate text-sm ${isDark ? 'text-[#ffdd66]/80' : 'font-semibold text-[#1a1a1a]/80'}`}>Hourly Rate: {project.hourly_rate}/hour</p>}
+                            {project.monthly_rate && <p className={`truncate text-sm ${isDark ? 'text-[#ffdd66]/80' : 'font-semibold text-[#1a1a1a]/80'}`}>Monthly Rate: {project.monthly_rate}/month</p>}
+                            {(!project.budget && !project.hourly_rate && !project.monthly_rate) && <p className={`text-lg ${isDark ? 'text-white/50' : 'text-[#1a1a1a]/50'}`}>Negotiable</p>}
                           </div>
                           <Link to="/signup" className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isDark ? 'bg-white/10 group-hover/card:bg-[#ffdd66] group-hover/card:text-black' : 'bg-[#1a1a1a]/5 group-hover/card:bg-[#1a1a1a] group-hover/card:text-white'}`}>
                             <ArrowRight className="w-5 h-5" />

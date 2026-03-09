@@ -1,0 +1,18 @@
+ERROR in log_subscription: {"code":"42501","details":null,"hint":null,"message":"new row violates row-level security policy for table \"subscription_logs\""}
+Traceback (most recent call last):
+  File "C:\Users\sw\Documents\tarakki-webapp\Tarakki-webapp\server-python\routes\subscriptions.py", line 29, in log_subscription
+    db.insert("subscription_logs", new_log, token=token)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\sw\Documents\tarakki-webapp\Tarakki-webapp\server-python\supabase_client.py", line 86, in insert
+    raise Exception(resp.text)
+Exception: {"code":"42501","details":null,"hint":null,"message":"new row violates row-level security policy for table \"subscription_logs\""}
+
+ERROR in log_subscription: {"code":"42501","details":null,"hint":null,"message":"new row violates row-level security policy for table \"subscription_logs\""}
+Traceback (most recent call last):
+  File "C:\Users\sw\Documents\tarakki-webapp\Tarakki-webapp\server-python\routes\subscriptions.py", line 29, in log_subscription
+    db.insert("subscription_logs", new_log, token=token)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\sw\Documents\tarakki-webapp\Tarakki-webapp\server-python\supabase_client.py", line 86, in insert
+    raise Exception(resp.text)
+Exception: {"code":"42501","details":null,"hint":null,"message":"new row violates row-level security policy for table \"subscription_logs\""}
+

@@ -131,7 +131,7 @@ export default function Projects() {
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-6 pt-4">
             <div>
               <h1 className="text-5xl md:text-6xl tracking-tight text-[#1a1a1a]">
-                Available <span className="font-medium">Roles</span>
+                Available <span className="font-medium">Projects</span>
               </h1>
               <p className="text-[#1a1a1a]/60 text-lg mt-4 max-w-xl">Find the best Oracle opportunities from egisedge. Filter by skills, location, and apply directly.</p>
             </div>
@@ -315,6 +315,12 @@ export default function Projects() {
                           {project.type}
                         </span>
                       )}
+                      {project.deadline && (
+                        <span className="flex items-center text-red-300">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-400 mr-2"></span>
+                          Due: {new Date(project.deadline).toLocaleDateString()}
+                        </span>
+                      )}
                     </div>
 
                     <p className="text-white/70 text-sm leading-relaxed mb-6 max-w-3xl">{project.description}</p>
@@ -329,9 +335,33 @@ export default function Projects() {
                   </div>
 
                   <div className="flex flex-col items-start md:items-end justify-between relative z-10 border-t md:border-t-0 md:border-l border-white/10 pt-6 md:pt-0 md:pl-8 min-w-[240px]">
-                    <div className="mb-6 md:mb-0">
-                      <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-white/40 mb-1">Budget / Rate</p>
-                      <p className="text-2xl font-light tracking-tighter text-[#ffdd66]">{project.budget}</p>
+                    <div className="mb-6 md:mb-0 flex flex-col items-start md:items-end w-full">
+                      <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-white/40 mb-2">Compensation</p>
+                      
+                      {project.budget && (
+                        <div className="flex border border-[#ffdd66]/20 bg-[#ffdd66]/5 rounded-xl px-4 py-2 mb-2 w-full justify-between md:justify-end gap-4 items-center">
+                          <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Fixed</span>
+                          <span className="text-xl font-light tracking-tighter text-[#ffdd66]">{project.budget}</span>
+                        </div>
+                      )}
+                      
+                      {project.hourly_rate && (
+                        <div className="flex border border-[#ffdd66]/20 bg-[#ffdd66]/5 rounded-xl px-4 py-2 mb-2 w-full justify-between md:justify-end gap-4 items-center">
+                          <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Hourly</span>
+                          <span className="text-xl font-light tracking-tighter text-[#ffdd66]">{project.hourly_rate}</span>
+                        </div>
+                      )}
+
+                      {project.monthly_rate && (
+                        <div className="flex border border-[#ffdd66]/20 bg-[#ffdd66]/5 rounded-xl px-4 py-2 w-full justify-between md:justify-end gap-4 items-center">
+                          <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Monthly</span>
+                          <span className="text-xl font-light tracking-tighter text-[#ffdd66]">{project.monthly_rate}</span>
+                        </div>
+                      )}
+                      
+                      {(!project.budget && !project.hourly_rate && !project.monthly_rate) && (
+                        <p className="text-xl font-light tracking-tighter text-white/50 mb-2">—</p>
+                      )}
                     </div>
 
                     {session ? (
