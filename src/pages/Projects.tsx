@@ -48,17 +48,21 @@ export default function Projects() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) fetchApplications(session.user.id);
+      if (session) fetchApplicationsAndBids(session.user.id);
     }).catch(err => console.error('Supabase connection error:', err));
 
-    const fetchApplications = async (userId: string) => {
+    const fetchApplicationsAndBids = async (userId: string) => {
       try {
         const appsData = await fetchApi('/applications');
-        // Filter applications for the current user
+        const bidsData = await fetchApi('/bids');
+        
+        // Filter applications and bids for the current user
         const myApps = (appsData || []).filter((a: any) => a.user_id === userId);
-        setApplications(myApps);
+        const myBids = (bidsData || []).filter((b: any) => b.user_id === userId);
+        
+        setApplications([...myApps, ...myBids]);
       } catch (err) {
-        console.error('Error fetching applications:', err);
+        console.error('Error fetching applications and bids:', err);
       }
     };
 
@@ -107,9 +111,21 @@ export default function Projects() {
     return matchesSearch && matchesLocation && matchesType;
   });
 
-  const handleApply = (projectId: string | number) => {
+  const handleApply = async (projectId: string | number) => {
     if (!session) { alert('Please log in to apply for projects.'); return; }
-    navigate(`/apply/${projectId}`);
+    
+    try {
+      const profile = await fetchApi(`/profiles/${session.user.id}`);
+      if (profile?.role === 'startup') {
+        navigate(`/bid/${projectId}`);
+      } else {
+        navigate(`/apply/${projectId}`);
+      }
+    } catch (err) {
+      console.error("Error determining role:", err);
+      // Fallback to apply
+      navigate(`/apply/${projectId}`);
+    }
   };
 
   return (

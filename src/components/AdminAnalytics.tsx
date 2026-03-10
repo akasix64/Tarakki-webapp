@@ -43,9 +43,11 @@ export default function AdminAnalytics({ projects, applications, users }: AdminA
       const apps = grouped[date];
       return {
         date,
-        accepted: apps.filter(a => a.status === 'approved').length,
-        rejected: apps.filter(a => a.status === 'rejected').length,
-        pending: apps.filter(a => !a.status || a.status === 'pending').length,
+        accepted: apps.filter(a => ['accepted', 'approved'].includes(a.status?.toLowerCase())).length,
+        shortlisted: apps.filter(a => a.status?.toLowerCase() === 'shortlisted').length,
+        review: apps.filter(a => a.status?.toLowerCase() === 'review').length,
+        rejected: apps.filter(a => a.status?.toLowerCase() === 'rejected').length,
+        pending: apps.filter(a => !a.status || a.status?.toLowerCase() === 'pending').length,
       };
     });
   }, [applications]);
@@ -103,7 +105,7 @@ export default function AdminAnalytics({ projects, applications, users }: AdminA
         </div>
         <div className="h-64 w-full">
           {projectsData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minHeight={1}>
               <AreaChart data={projectsData}>
                 <defs>
                   <linearGradient id="colorProjects" x1="0" y1="0" x2="0" y2="1">
@@ -132,21 +134,23 @@ export default function AdminAnalytics({ projects, applications, users }: AdminA
           </div>
           <div>
             <h3 className="text-lg font-bold text-[#1a1a1a]">Application Status</h3>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Accepted vs Rejected vs Pending</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Accepted vs Shortlisted vs Review vs Rejected</p>
           </div>
         </div>
         <div className="h-64 w-full">
           {applicationsData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minHeight={1}>
               <BarChart data={applicationsData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                 <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} dx={-10} allowDecimals={false} />
                 <Tooltip content={<CustomTooltip />} cursor={{ fill: 'transparent' }} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
-                <Bar dataKey="accepted" name="Accepted" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="rejected" name="Rejected" stackId="a" fill="#ef4444" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="pending" name="Pending" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="accepted" name="Accepted" stackId="a" fill="#10b981" />
+                <Bar dataKey="shortlisted" name="Shortlisted" stackId="a" fill="#3b82f6" />
+                <Bar dataKey="review" name="In Review" stackId="a" fill="#f97316" />
+                <Bar dataKey="rejected" name="Rejected" stackId="a" fill="#ef4444" />
+                <Bar dataKey="pending" name="Pending" stackId="a" fill="#94a3b8" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -168,7 +172,7 @@ export default function AdminAnalytics({ projects, applications, users }: AdminA
         </div>
         <div className="h-64 w-full">
           {usersData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minHeight={1}>
               <LineChart data={usersData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                 <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} dy={10} />

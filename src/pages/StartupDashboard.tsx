@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
@@ -18,6 +18,8 @@ export default function StartupDashboard() {
   const [profile, setProfile] = useState<any>(null);
   const [projects, setProjects] = useState<any[]>([]);
   const [applications, setApplications] = useState<any[]>([]);
+  const [bids, setBids] = useState<any[]>([]);
+  const [receivedBids, setReceivedBids] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -43,6 +45,31 @@ export default function StartupDashboard() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         // Fetch notifications
+        const fetchCombinedData = async () => {
+          try {
+            const [profileData, projectsData, appsData, bidsData, notifsData] = await Promise.all([
+              fetchApi(`/profiles/${session.user.id}`),
+              fetchApi('/projects'),
+              fetchApi('/applications'),
+              fetchApi('/bids'),
+              fetchApi('/notifications')
+            ]);
+            if (profileData) setProfile(profileData);
+            const sId = profileData?.id || session.user.id;
+            const myProj = (projectsData || []).filter((p: any) => p.startup_id === sId);
+            setProjects(myProj.map((p: any) => ({ ...p, teamSize: p.team_size || 0, posted: new Date(p.created_at).toLocaleDateString() })));
+            const sProjIds = myProj.map((p: any) => p.id);
+            if (appsData) setApplications(appsData.filter((a: any) => sProjIds.includes(a.project_id)));
+            if (bidsData) {
+              setBids(bidsData.filter((b: any) => b.user_id === session.user.id));
+              setReceivedBids(bidsData.filter((b: any) => sProjIds.includes(b.project_id)));
+            }
+            if (notifsData) setNotifications(notifsData);
+          } catch (e) {
+            console.error('Error fetching combined dashboard data:', e);
+          }
+        };
+
         const fetchNotifs = async () => {
           try {
             const notifsData = await fetchApi('/notifications');
@@ -52,42 +79,26 @@ export default function StartupDashboard() {
           }
         };
 
-        try {
-          // Fetch Profile
-          const profileData = await fetchApi(`/profiles/${session.user.id}`);
-          setProfile(profileData);
+        fetchCombinedData();
 
-          // Fetch Projects
-          const projectsData = await fetchApi('/projects');
-          const myProjects = (projectsData || []).filter((p: any) => p.startup_id === (profileData?.id || session.user.id));
-
-          if (myProjects) {
-            setProjects(myProjects.map((p: any) => ({
-              ...p,
-              teamSize: p.team_size || 0,
-              posted: new Date(p.created_at).toLocaleDateString()
-            })));
-          }
-
-          // Fetch Applications
-          const appsData = await fetchApi('/applications');
-          if (appsData) {
-            const startupProjectIds = myProjects.map((p: any) => p.id);
-            const relevantApps = appsData.filter((app: any) => startupProjectIds.includes(app.project_id));
-            setApplications(relevantApps);
-          }
-
-          fetchNotifs();
-        } catch (err) {
-          console.error('Error fetching dashboard data:', err);
-        }
-
-        // Real-time subscription for new notifications
-        const ch = supabase.channel('notifs-startup').on('postgres_changes',
+        // Real-time subscriptions
+        const notifCh = supabase.channel('notifs-startup').on('postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${session.user.id}` },
           () => fetchNotifs()).subscribe();
-        // eslint-disable-next-line consistent-return
-        return () => { supabase.removeChannel(ch); };
+
+        const bidsCh = supabase.channel('bids-startup').on('postgres_changes',
+          { event: '*', schema: 'public', table: 'bids', filter: `user_id=eq.${session.user.id}` },
+          () => fetchData()).subscribe();
+
+        const projCh = supabase.channel('proj-startup').on('postgres_changes',
+          { event: '*', schema: 'public', table: 'projects', filter: `startup_id=eq.${session.user.id}` },
+          () => fetchData()).subscribe();
+
+        return () => { 
+          supabase.removeChannel(notifCh); 
+          supabase.removeChannel(bidsCh);
+          supabase.removeChannel(projCh);
+        };
       }
     };
     fetchData();
@@ -113,11 +124,43 @@ export default function StartupDashboard() {
   }).length;
   const acceptedAppsCount = applications.filter(a => {
     const s = a.status?.toLowerCase();
-    return s === 'accepted' || s === 'approved';
+    return ['accepted', 'approved', 'shortlisted'].includes(s);
   }).length;
 
   const hiringRate = total > 0 ? Math.round((hiring / total) * 100) : 0;
   const activeRate = total > 0 ? Math.round((inProgress / total) * 100) : 0;
+
+  // Compute bids over the last 7 days
+  const last7DaysBids = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const days = Array.from({ length: 7 }).map((_, i) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() - (6 - i));
+      return { 
+        date: d, 
+        dayShort: ['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getDay()],
+        count: 0
+      };
+    });
+
+    bids.forEach(bid => {
+      if (!bid.created_at) return;
+      const bDate = new Date(bid.created_at);
+      bDate.setHours(0, 0, 0, 0);
+      const diffTime = today.getTime() - bDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      if (diffDays >= 0 && diffDays < 7) {
+        const idx = 6 - diffDays;
+        days[idx].count += 1;
+      }
+    });
+
+    return days;
+  }, [bids]);
+
+  const maxBidCount = Math.max(...last7DaysBids.map(d => d.count), 1);
 
   const avatarInitial = (profile?.full_name || profile?.email || '?')[0].toUpperCase();
 
@@ -244,17 +287,20 @@ export default function StartupDashboard() {
               <div className="flex items-center gap-2 text-6xl font-light tracking-tighter text-[#1a1a1a]">
                 {totalAppsCount}
               </div>
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Bids</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Incoming</span>
+            </div>
+            <div className="flex flex-col items-center">
+              <div className="flex items-center gap-2 text-6xl font-light tracking-tighter text-[#1a1a1a]">
+                {bids.length}
+              </div>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">My Bids</span>
             </div>
           </div>
         </div>
 
         {/* ── Tracker Strip (Like the striped progress in ref) ──────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="col-span-1 md:col-span-3 bg-white/40 backdrop-blur-md rounded-full p-2 flex items-center border border-white/50 shadow-sm relative overflow-hidden h-14">
-            {/* Striped track background */}
-            <div className="absolute inset-0 opacity-[0.15]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #1a1a1a 25%, transparent 25%, transparent 75%, #1a1a1a 75%, #1a1a1a), repeating-linear-gradient(45deg, #1a1a1a 25%, transparent 25%, transparent 75%, #1a1a1a 75%, #1a1a1a)', backgroundPosition: '0 0, 8px 8px', backgroundSize: '16px 16px' }} />
-
+          <div className="col-span-1 md:col-span-3 bg-white/60 backdrop-blur-md rounded-full p-2 flex items-center border border-white/50 shadow-sm relative overflow-hidden h-14">
             <div className="relative z-10 flex gap-1 w-full h-full">
               <div className="bg-[#1a1a1a] text-white text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(activeRate, 15)}%` }}>
                 Active <span className="opacity-50 font-medium ml-auto">{activeRate}%</span>
@@ -373,92 +419,148 @@ export default function StartupDashboard() {
             {/* Center Column: Interest / Analytics Chart */}
             <div className="col-span-1 bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 flex flex-col h-[380px] hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-6">
-                <h3 className="text-[#1a1a1a] font-semibold text-lg">Hiring Pipeline</h3>
+                <h3 className="text-[#1a1a1a] font-semibold text-lg">Bidding Pipeline</h3>
                 <button className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-400 hover:text-black hover:border-slate-300 hover:bg-slate-50 transition-all">
                   <ArrowRight className="w-4 h-4 -rotate-45" />
                 </button>
               </div>
 
               <div className="flex items-end gap-3 mb-10">
-                <span className="text-6xl font-light tracking-tighter text-[#1a1a1a] leading-none">+{pendingAppsCount}</span>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-tight mb-1.5 flex flex-col gap-0.5"><span>Pending</span><span>Review</span></span>
+                <span className="text-6xl font-light tracking-tighter text-[#1a1a1a] leading-none">+{bids.length}</span>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-tight mb-1.5 flex flex-col gap-0.5"><span>Total</span><span>Bids Placed</span></span>
               </div>
 
-              {/* Decorative bar chart imitating the ref image */}
+              {/* Dynamic bar chart based on bids over the last 7 days */}
               <div className="mt-auto flex items-end justify-between h-36 px-2">
-                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => {
-                  const heights = [30, 70, 50, 90, 100, 40, 20];
-                  const isHighlight = i === 4;
+                {last7DaysBids.map((dayData, i) => {
+                  const heightPercent = (dayData.count / maxBidCount) * 100;
+                  const isHighlight = i === 6; // Today
                   const isDark = i % 2 !== 0 && !isHighlight;
+                  
                   return (
-                    <div key={i} className="flex flex-col items-center gap-3 w-4 h-full">
-                      <div className="w-full flex-1 bg-slate-50 rounded-full relative flex items-end overflow-hidden group">
+                    <div key={i} className="flex flex-col items-center gap-3 w-4 h-full relative group">
+                      <div className="w-full flex-1 bg-slate-50 rounded-full relative flex items-end overflow-hidden">
                         <div
                           className={`w-full rounded-full transition-all duration-500 ease-out 
                           ${isHighlight ? 'bg-[#ffdd66]' : isDark ? 'bg-[#1a1a1a]' : 'bg-slate-200 group-hover:bg-slate-300'}`}
-                          style={{ height: `${heights[i]}%` }}
+                          style={{ height: `${Math.max(heightPercent, 10)}%` }}
                         />
                       </div>
-                      <span className={`text-[10px] font-bold ${isHighlight ? 'text-[#1a1a1a]' : 'text-slate-400'}`}>{day}</span>
+                      <span className={`text-[10px] font-bold ${isHighlight ? 'text-[#1a1a1a]' : 'text-slate-400'}`}>{dayData.dayShort}</span>
+                      
+                      {/* Tooltip on hover */}
+                      <div className="absolute -top-10 scale-0 origin-bottom group-hover:scale-100 transition-transform bg-[#1a1a1a] text-[#ffdd66] text-[10px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap shadow-xl z-20">
+                        {dayData.count} Bids
+                      </div>
                     </div>
                   );
                 })}
               </div>
             </div>
 
-            {/* Right Column: Dark Modern List (Applications Tracker) */}
-            <div className="col-span-1 bg-[#2c2c2e] rounded-[2rem] p-7 shadow-xl shadow-black/5 flex flex-col text-white h-[380px]">
+            {/* Right Column: Dark Modern List (Bids Tracker) */}
+            {/* <div className="col-span-1 bg-[#2c2c2e] rounded-[2rem] p-7 shadow-xl shadow-black/5 flex flex-col text-white h-[380px]">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-white font-semibold">Bids Received</h3>
-                <span className="text-4xl font-light tracking-tighter text-white/50">{Math.min(applications.length, 5)}<span className="text-2xl">/{totalAppsCount}</span></span>
+                <span className="text-4xl font-light tracking-tighter text-white/50">{Math.min(receivedBids.length, 5)}<span className="text-2xl">/{receivedBids.length}</span></span>
               </div>
 
               <div className="flex-1 overflow-y-auto overflow-x-hidden pr-2 space-y-2.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                {applications.length > 0 ? applications.map((app, i) => {
-                  const isAccepted = app.status === 'Accepted';
+                {receivedBids.length > 0 ? receivedBids.map((bid, i) => {
+                  const isAccepted = bid.status === 'Accepted';
                   // Lookup project name
-                  const project = projects.find(p => p.id === app.project_id);
+                  const project = projects.find(p => p.id === bid.project_id);
 
                   return (
-                    <div key={app.id} className="flex gap-4 group cursor-pointer hover:bg-white/5 rounded-2xl p-3 -mx-2 transition-colors">
-                      <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 shadow-inner 
-                      ${['accepted', 'approved'].includes(app.status?.toLowerCase()) ? 'bg-[#ffdd66] text-black'
-                          : app.status?.toLowerCase() === 'rejected' ? 'bg-red-500/20 text-red-400 border border-red-500/20'
-                            : 'bg-white/10 text-white/60 border border-white/5'}`}>
-                        {['accepted', 'approved'].includes(app.status?.toLowerCase()) ? <Users className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
-                      </div>
-                      <div className="flex-1 min-w-0 flex flex-col justify-center">
-                        <h4 className="text-sm font-semibold text-white truncate group-hover:text-[#ffdd66] transition-colors">{project?.title || 'Unknown Role'}</h4>
-                        <p className={`text-[11px] mt-1 truncate tracking-wide font-bold uppercase ${['accepted', 'approved'].includes(app.status?.toLowerCase()) ? 'text-[#ffdd66]'
-                          : app.status?.toLowerCase() === 'rejected' ? 'text-red-400'
-                            : 'text-white/50'
-                          }`}>
-                          {['accepted', 'approved'].includes(app.status?.toLowerCase()) ? 'Accepted'
-                            : app.status?.toLowerCase() === 'rejected' ? 'Rejected'
-                              : 'Pending Review'
-                          }
-                        </p>
-                      </div>
-                      <div className="flex items-center">
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center border transition-colors
-                        ${['accepted', 'approved'].includes(app.status?.toLowerCase()) ? 'border-[#ffdd66] bg-[#ffdd66]'
-                            : app.status?.toLowerCase() === 'rejected' ? 'border-red-500/40'
-                              : 'border-white/20 group-hover:border-white/40'}`}>
-                          {['accepted', 'approved'].includes(app.status?.toLowerCase()) && <CheckCircle className="w-3.5 h-3.5 text-black" />}
-                        </div>
-                      </div>
+                    <div key={bid.id} className="flex gap-4 group cursor-pointer hover:bg-white/5 rounded-2xl p-3 -mx-2 transition-colors">
+                      {(() => {
+                        const s = bid.status?.toLowerCase();
+                        const isSelected = ['accepted', 'approved', 'shortlisted'].includes(s);
+                        const isRejected = s === 'rejected';
+                        const isReview = s === 'review';
+
+                        let iconBoxCls = 'bg-white/10 text-white/60 border border-white/5';
+                        if (isSelected) iconBoxCls = 'bg-[#ffdd66] text-black';
+                        else if (isRejected) iconBoxCls = 'bg-red-500/20 text-red-400 border border-red-500/20';
+                        else if (isReview) iconBoxCls = 'bg-orange-500/20 text-orange-400 border border-orange-500/20';
+
+                        let textCls = 'text-white/50';
+                        if (isSelected) textCls = 'text-[#ffdd66]';
+                        else if (isRejected) textCls = 'text-red-400';
+                        else if (isReview) textCls = 'text-orange-400';
+
+                        return (
+                          <>
+                            <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 shadow-inner ${iconBoxCls}`}>
+                              {isSelected ? <Users className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                            </div>
+                            <div className="flex-1 min-w-0 flex flex-col justify-center">
+                              <h4 className="text-sm font-semibold text-white truncate group-hover:text-[#ffdd66] transition-colors">{project?.title || 'Unknown Role'}</h4>
+                              <p className={`text-[11px] mt-1 truncate tracking-wide font-bold uppercase ${textCls}`}>
+                                {bid.status || 'Pending Review'}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs font-bold text-cyan-400 shrink-0">{bid.bid_amount}</span>
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center border transition-colors
+                                ${isSelected ? 'border-[#ffdd66] bg-[#ffdd66]'
+                                  : isRejected ? 'border-red-500/40' : 'border-white/20 group-hover:border-white/40'}`}>
+                                {isSelected && <CheckCircle className="w-3.5 h-3.5 text-black" />}
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   );
                 }) : (
                   <div className="flex flex-col items-center justify-center h-full opacity-50">
                     <Users className="w-8 h-8 mb-3 text-white/50" />
-                    <p className="text-sm font-medium">No applications incoming</p>
+                    <p className="text-sm font-medium">No bids incoming</p>
                   </div>
                 )}
               </div>
 
               <div className="pt-4 mt-auto">
                 <button onClick={() => navigate('/projects')} className="w-full py-3.5 bg-white/5 hover:bg-white/10 transition-colors rounded-xl text-sm font-bold text-white tracking-wide border border-white/10">Manage Roles</button>
+              </div>
+            </div> */}
+
+            {/* NEW: My Bids Sent to Others (Dark Theme) */}
+            <div className="col-span-1 bg-[#2c2c2e] rounded-[2rem] p-7 shadow-xl shadow-black/5 flex flex-col text-white h-[380px] hover:shadow-2xl transition-shadow">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-white font-semibold">My Project Bids</h3>
+                <span className="text-sm font-bold text-white/50 capitalize">{bids.length} Submitted</span>
+              </div>
+
+              <div className="flex-1 overflow-y-auto pr-2 space-y-3 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {bids.length > 0 ? bids.map((bid) => (
+                  <div key={bid.id} className="p-4 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 transition-colors">
+                    <div className="flex justify-between items-start mb-2">
+                      <h4 className="text-sm font-bold text-white truncate pr-2 group-hover:text-[#ffdd66] transition-colors">{bid.projects?.title || 'Unknown Project'}</h4>
+                      <span className="text-xs font-bold text-cyan-400 shrink-0">{bid.bid_amount}</span>
+                    </div>
+                    <div className="flex items-center justify-between mt-3">
+                      <span className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> {bid.delivery_time}
+                      </span>
+                      <span className={`px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-wider border
+                        ${bid.status?.toLowerCase() === 'accepted' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/20' : 
+                          bid.status?.toLowerCase() === 'rejected' ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-blue-500/20 text-blue-400 border-blue-500/20'}`}>
+                        {bid.status}
+                      </span>
+                    </div>
+                  </div>
+                )) : (
+                  <div className="flex flex-col items-center justify-center h-full opacity-50">
+                    <Briefcase className="w-8 h-8 mb-3 text-white/50" />
+                    <p className="text-sm font-medium">No bids placed yet</p>
+                  </div>
+                )}
+              </div>
+              
+              <div className="pt-4 mt-auto">
+                <button onClick={() => navigate('/projects')} className="w-full py-3.5 bg-white/5 text-white rounded-xl text-sm font-bold tracking-wide border border-white/10 hover:bg-white/10 transition-colors">Explore Projects</button>
               </div>
             </div>
 

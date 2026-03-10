@@ -12,6 +12,8 @@ import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
 import Profile from './pages/Profile';
 import ApplyForm from './pages/ApplyForm';
+import BidForm from './pages/BidForm';
+import Bids from './pages/Bids';
 import ManageApplications from './pages/ManageApplications';
 import Subscription from './pages/Subscription';
 import AdminDashboard from './pages/AdminDashboard';
@@ -27,6 +29,8 @@ export default function App() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="projects" element={<Projects />} />
           <Route path="apply/:projectId" element={<ApplyForm />} />
+          <Route path="bid/:projectId" element={<BidForm />} />
+          <Route path="bids" element={<Bids />} />
           <Route path="manage-applications" element={<ManageApplications />} />
           <Route path="profile" element={<Profile />} />
           <Route path="subscription" element={<Subscription />} />

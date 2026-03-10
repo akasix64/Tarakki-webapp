@@ -7,20 +7,23 @@ instead of the supabase-py SDK (avoids Rust/pydantic dependency).
 import os
 import requests
 
-SUPABASE_URL = os.getenv("VITE_SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("VITE_SUPABASE_ANON_KEY", "")
+SUPABASE_URL = os.getenv("VITE_SUPABASE_URL", "").strip('"')
+SUPABASE_KEY = os.getenv("VITE_SUPABASE_ANON_KEY", "").strip('"')
 REST_URL = f"{SUPABASE_URL}/rest/v1"
 AUTH_URL = f"{SUPABASE_URL}/auth/v1"
+SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", SUPABASE_KEY).strip('"')
 
 
-def _headers(token=None):
+def _headers(token=None, use_service_key=False):
     """Build standard Supabase headers."""
     h = {
-        "apikey": SUPABASE_KEY,
+        "apikey": SERVICE_KEY if use_service_key else SUPABASE_KEY,
         "Content-Type": "application/json",
         "Prefer": "return=representation",
     }
-    if token:
+    if use_service_key:
+        h["Authorization"] = f"Bearer {SERVICE_KEY}"
+    elif token:
         h["Authorization"] = f"Bearer {token}"
     else:
         h["Authorization"] = f"Bearer {SUPABASE_KEY}"
@@ -31,14 +34,14 @@ def _headers(token=None):
 #  SELECT helpers
 # ────────────────────────────────────────────
 
-def select(table, columns="*", filters=None, order=None, token=None, single=False):
+def select(table, columns="*", filters=None, order=None, token=None, single=False, use_service_key=False):
     """
     SELECT from a table.
     filters: dict of column=value  (eq filters)
     order:   "col.desc" or "col.asc"
     """
     params = {"select": columns}
-    headers = _headers(token)
+    headers = _headers(token, use_service_key=use_service_key)
 
     if order:
         params["order"] = order
@@ -67,7 +70,7 @@ def select(table, columns="*", filters=None, order=None, token=None, single=Fals
 #  INSERT helper
 # ────────────────────────────────────────────
 
-def insert(table, rows, columns="*", token=None):
+def insert(table, rows, columns="*", token=None, use_service_key=False):
     """
     INSERT one or more rows.
     rows: a single dict or a list of dicts.
@@ -77,7 +80,7 @@ def insert(table, rows, columns="*", token=None):
         rows = [rows]
 
     params = {"select": columns}
-    headers = _headers(token)
+    headers = _headers(token, use_service_key=use_service_key)
     headers["Prefer"] = "return=representation"
 
     resp = requests.post(f"{REST_URL}/{table}", headers=headers, json=rows, params=params)
@@ -93,13 +96,13 @@ def insert(table, rows, columns="*", token=None):
 #  UPDATE helper
 # ────────────────────────────────────────────
 
-def update(table, updates, filters, columns="*", token=None):
+def update(table, updates, filters, columns="*", token=None, use_service_key=False):
     """
     UPDATE rows matching filters.
     filters: dict of column=value (eq filters)
     """
     params = {"select": columns}
-    headers = _headers(token)
+    headers = _headers(token, use_service_key=use_service_key)
     headers["Prefer"] = "return=representation"
 
     for col, val in filters.items():
@@ -141,12 +144,12 @@ def upsert(table, row, columns="*", token=None):
 #  DELETE helper
 # ────────────────────────────────────────────
 
-def delete(table, filters, token=None):
+def delete(table, filters, token=None, use_service_key=False):
     """
     DELETE rows matching filters.
     """
     params = {}
-    headers = _headers(token)
+    headers = _headers(token, use_service_key=use_service_key)
 
     for col, val in filters.items():
         if isinstance(val, bool):

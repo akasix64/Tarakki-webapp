@@ -1,24 +1,27 @@
 import React, { useEffect, useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
 import { fetchApi } from '../lib/api';
 import {
   Plus, Users, Briefcase, Activity, X, Check, Trash2,
   LayoutDashboard, FolderOpen, ChevronRight, Bell, Settings,
   UserCircle, Menu, TrendingUp, ShieldCheck, Phone, CreditCard, Mail,
-  MapPin, Globe, FileText, Building2, Calendar, Star, Hash, Search, SlidersHorizontal
+  MapPin, Globe, FileText, Building2, Calendar, Star, Hash, Search, SlidersHorizontal, ArrowRight
 } from 'lucide-react';
 import AdminAnalytics from '../components/AdminAnalytics';
 import AdminFinanceLogs from '../components/AdminFinanceLogs';
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'projects' | 'users' | 'applications' | 'profile' | 'finance_logs'>('overview');
-  const [stats, setStats] = useState({ contractors: 0, startups: 0, projects: 0, applications: 0 });
+  const [activeTab, setActiveTab] = useState<'overview' | 'projects' | 'users' | 'applications' | 'bids' | 'profile' | 'finance_logs'>('overview');
+  const [stats, setStats] = useState({ contractors: 0, startups: 0, projects: 0, applications: 0, bids: 0 });
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [selectedApplication, setSelectedApplication] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [applications, setApplications] = useState<any[]>([]);
+  const [bids, setBids] = useState<any[]>([]);
+  const [bidsLoading, setBidsLoading] = useState(false);
   const [subscriptionLogs, setSubscriptionLogs] = useState<any[]>([]);
   const [applicationsLoading, setApplicationsLoading] = useState(false);
   const [adminProfile, setAdminProfile] = useState<any>(null);
@@ -113,12 +116,33 @@ export default function AdminDashboard() {
         setStats(prev => ({ ...prev, applications: enriched.length }));
       } else {
         setApplications([]);
+        setStats(prev => ({ ...prev, applications: 0 }));
       }
     } catch (err) {
       console.error('Error fetching applications via API:', err);
       setApplications([]);
     } finally {
       setApplicationsLoading(false);
+    }
+  };
+
+  const fetchBids = async () => {
+    setBidsLoading(true);
+    try {
+      const data = await fetchApi('/bids');
+      console.log('Bids Detailed Data Received:', data);
+      if (data) {
+        setBids(data);
+        setStats(prev => ({ ...prev, bids: data.length }));
+      } else {
+        setBids([]);
+        setStats(prev => ({ ...prev, bids: 0 }));
+      }
+    } catch (err) {
+      console.error('Error fetching bids:', err);
+      setBids([]);
+    } finally {
+      setBidsLoading(false);
     }
   };
 
@@ -141,10 +165,16 @@ export default function AdminDashboard() {
       }
     };
 
-    fetchData();
-    fetchApplications();
-    fetchNotifications();
-    fetchSubscriptionLogs();
+    const fetchAdminData = async () => {
+      await Promise.all([
+        fetchData(),
+        fetchApplications(),
+        fetchBids(),
+        fetchNotifications(),
+        fetchSubscriptionLogs()
+      ]);
+    };
+    fetchAdminData();
 
     // Fetch admin's own profile via Auth and API
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -169,7 +199,9 @@ export default function AdminDashboard() {
     const pj = supabase.channel('projects-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, fetchData).subscribe();
     const pa = supabase.channel('applications-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, fetchData).subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, fetchApplications).subscribe();
+    const pb = supabase.channel('bids-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bids' }, fetchBids).subscribe();
 
     let notifsChannel: any;
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -188,6 +220,7 @@ export default function AdminDashboard() {
       supabase.removeChannel(ps);
       supabase.removeChannel(pj);
       supabase.removeChannel(pa);
+      supabase.removeChannel(pb);
       if (notifsChannel) supabase.removeChannel(notifsChannel);
     };
   }, []);
@@ -273,20 +306,63 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="w-full max-w-7xl mx-auto py-8">
+    <div className="w-full min-h-screen py-8">
       <div className="fixed inset-x-0 top-16 bottom-0 overflow-y-auto font-sans selection:bg-[#ffdd66] selection:text-black" style={{ background: 'linear-gradient(135deg, #f8f9f4 0%, #f0ebd8 50%, #fefcf3 100%)' }}>
 
         {/* ── Top Navigation Pill Bar ────────────────────────────────────────── */}
-        <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
-          <div className="flex items-center gap-2 bg-white/60 backdrop-blur-md rounded-full p-1.5 shadow-sm border border-white/40 overflow-x-auto hide-scrollbar">
-            <button onClick={() => setActiveTab('overview')} className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${activeTab === 'overview' ? 'bg-[#1a1a1a] text-white shadow-md' : 'text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a]'}`}>Overview</button>
-            <button onClick={() => setActiveTab('projects')} className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${activeTab === 'projects' ? 'bg-[#1a1a1a] text-white shadow-md' : 'text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a]'}`}>Projects</button>
-            <button onClick={() => setActiveTab('users')} className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${activeTab === 'users' ? 'bg-[#1a1a1a] text-white shadow-md' : 'text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a]'}`}>Users</button>
-            <button onClick={() => setActiveTab('applications')} className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${activeTab === 'applications' ? 'bg-[#1a1a1a] text-white shadow-md' : 'text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a]'}`}>Applications</button>
-            <button onClick={() => setActiveTab('finance_logs')} className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${activeTab === 'finance_logs' ? 'bg-[#1a1a1a] text-white shadow-md' : 'text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a]'}`}>Finance & Logs</button>
-            <button onClick={() => setActiveTab('profile')} className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${activeTab === 'profile' ? 'bg-[#ffdd66] text-[#1a1a1a] shadow-md' : 'text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a]'}`}>Profile</button>
-          </div>
-          <div className="flex items-center gap-3">
+        <div className="w-full px-4 md:px-8 lg:px-12 py-6 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6 relative z-[5000]">
+          <motion.div 
+            className="flex items-center gap-2 bg-white/60 backdrop-blur-xl rounded-full p-2 shadow-sm border border-white/40 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] w-full xl:w-auto z-10"
+          >
+            {[
+              { id: 'overview', label: 'Overview' },
+              { id: 'projects', label: 'Projects' },
+              { id: 'users', label: 'Users' },
+              { id: 'applications', label: 'Applications', badge: stats.applications > 0 ? stats.applications : null, badgeClass: 'bg-[#ffdd66] text-[#1a1a1a]' },
+              { id: 'bids', label: 'Startup Bids', badge: stats.bids > 0 ? stats.bids : null, badgeClass: 'bg-cyan-400 text-white' },
+              { id: 'finance_logs', label: 'Finance & Logs' },
+              { id: 'profile', label: 'Profile', isGold: true }
+            ].map((tab) => {
+              const isActive = activeTab === tab.id;
+              
+              // Text color
+              let textClass = 'text-slate-500 hover:text-[#1a1a1a]';
+              if (isActive) {
+                textClass = tab.isGold ? 'text-[#1a1a1a]' : 'text-white';
+              }
+
+              return (
+                <motion.button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as keyof typeof activeTab)}
+                  className={`relative px-5 md:px-6 py-2.5 rounded-full text-sm font-semibold transition-colors whitespace-nowrap outline-none ${textClass}`}
+                  whileHover={{ 
+                    scale: 1.12, 
+                    y: -2,
+                    zIndex: 50,
+                  }}
+                  whileTap={{ scale: 0.95 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="admin-active-tab"
+                      className={`absolute inset-0 rounded-full shadow-md -z-10 ${tab.isGold ? 'bg-[#ffdd66]' : 'bg-[#1a1a1a]'}`}
+                      initial={false}
+                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                    />
+                  )}
+                  <span className="relative z-10">{tab.label}</span>
+                  {tab.badge && (
+                    <span className={`absolute -top-1 -right-1 w-5 h-5 ${tab.badgeClass} text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white/80 z-20`}>
+                      {tab.badge}
+                    </span>
+                  )}
+                </motion.button>
+              );
+            })}
+          </motion.div>
+          <div className="flex items-center gap-2 w-full xl:w-auto pb-2 xl:pb-0 relative z-[2100]">
             <button 
               onClick={() => {
                 setActiveTab('users');
@@ -304,66 +380,85 @@ export default function AdminDashboard() {
             </button>
             <div className="relative" ref={notifRef}>
               <button
-                onClick={() => setShowNotifications(!showNotifications)}
-                className="w-11 h-11 rounded-full bg-white/60 backdrop-blur-md flex items-center justify-center border border-white/40 shadow-sm text-slate-500 hover:text-black transition-all relative"
+                onClick={() => {
+                  console.log('Bell clicked, current state:', showNotifications);
+                  setShowNotifications(!showNotifications);
+                }}
+                className="w-11 h-11 rounded-full bg-white/60 backdrop-blur-md flex items-center justify-center border border-white/40 shadow-sm text-slate-500 hover:text-black hover:bg-white transition-all relative z-10"
               >
                 <Bell className="w-4 h-4" />
                 {notifications.filter(n => !n.is_read).length > 0 && (
-                  <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-[#ffdd66] border border-white"></span>
+                  <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-[#ffdd66] border border-white animate-pulse"></span>
                 )}
               </button>
 
-              {showNotifications && (
-                <div className="absolute right-0 top-14 w-80 bg-white rounded-3xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
-                  <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-[#1a1a1a]">Notifications</h3>
-                    {notifications.length > 0 && (
-                      <button onClick={async () => {
-                        try {
-                          await fetchApi('/notifications/clear-all', { method: 'DELETE' });
-                          setNotifications([]);
-                        } catch (err) {
-                          console.error('Failed to clear notifications', err);
-                        }
-                      }} className="text-[10px] font-bold text-slate-400 hover:text-[#1a1a1a] uppercase tracking-widest">Clear all</button>
-                    )}
-                  </div>
-                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
-                    {notifications.length === 0 ? (
-                      <div className="py-10 text-center text-sm text-slate-400">No notifications yet</div>
-                    ) : notifications.map(n => (
-                      <div key={n.id} className={`px-5 py-4 flex gap-3 items-start cursor-pointer hover:bg-slate-50 transition-colors ${!n.is_read ? 'bg-[#fffbea]' : ''}`}
-                        onClick={async () => {
-                          if (!n.is_read) {
-                            try {
-                              // Assuming we'll add a single notification read point later, or just mark-all for now
-                              await fetchApi('/notifications/read-all', { method: 'PUT' });
-                              setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
-                            } catch (e) { }
+              <AnimatePresence>
+                {showNotifications && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute right-0 mt-4 w-80 bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border-2 border-[#1a1a1a] z-[1000] overflow-hidden origin-top-right"
+                  >
+                    {/* Dark arrow pointing to bell with border */}
+                    <div className="absolute top-0 right-4 w-4 h-4 bg-[#1a1a1a] rotate-45 -translate-y-2 z-[999] border-l-2 border-t-2 border-[#1a1a1a]" />
+                    
+                    <div className="px-5 py-4 flex items-center justify-between bg-[#1a1a1a] border-b border-[#ffdd66]/20">
+                      <h3 className="text-sm font-bold text-[#ffdd66] tracking-tight">Notifications</h3>
+                      {notifications.length > 0 && (
+                        <button onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            await fetchApi('/notifications/clear-all', { method: 'DELETE' });
+                            setNotifications([]);
+                          } catch (err) {
+                            console.error('Failed to clear notifications', err);
                           }
-                          if (n.type === 'application') {
-                            setActiveTab('applications');
-                            setShowNotifications(false);
-                          }
-                        }}>
-                        <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${!n.is_read ? 'bg-[#ffdd66]' : 'bg-transparent'}`} />
-                        <div>
-                          <p className={`text-sm ${!n.is_read ? 'text-[#1a1a1a] font-bold' : 'text-slate-600 font-medium'}`}>{n.title}</p>
-                          <p className="text-xs text-slate-500 mt-1 leading-relaxed">{n.message}</p>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">
-                            {new Date(n.created_at).toLocaleDateString()}
-                          </p>
+                        }} className="text-[10px] font-black text-[#ffdd66]/60 hover:text-[#ffdd66] uppercase tracking-[0.15em]">Clear</button>
+                      )}
+                    </div>
+                    <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                      {notifications.length === 0 ? (
+                        <div className="py-16 text-center">
+                          <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <Bell className="w-5 h-5 text-slate-300" />
+                          </div>
+                          <p className="text-sm text-slate-400 font-medium">No new alerts</p>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                      ) : notifications.map(n => (
+                        <div key={n.id} className={`px-5 py-4 flex gap-3 items-start cursor-pointer hover:bg-slate-50 transition-colors ${!n.is_read ? 'bg-[#fffbeb]' : ''}`}
+                          onClick={async () => {
+                            if (!n.is_read) {
+                              try {
+                                await fetchApi('/notifications/read-all', { method: 'PUT' });
+                                setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+                              } catch (e) { }
+                            }
+                            if (n.type === 'application') {
+                              setActiveTab('applications');
+                              setShowNotifications(false);
+                            }
+                          }}>
+                          <div className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${!n.is_read ? 'bg-[#ffdd66]' : 'bg-transparent border border-slate-200'}`} />
+                          <div className="flex-1">
+                            <p className={`text-sm leading-tight ${!n.is_read ? 'text-[#1a1a1a] font-bold' : 'text-slate-600 font-medium'}`}>{n.title}</p>
+                            <p className="text-xs text-slate-500 mt-1 leading-relaxed">{n.message}</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2 flex items-center gap-2">
+                              {new Date(n.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 pb-20">
+
+        <div className="w-full px-4 md:px-8 lg:px-12 pb-20 relative z-0">
 
           {/* ── Header ────────────────────────────────────────────── */}
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-10 pt-4">
@@ -374,21 +469,21 @@ export default function AdminDashboard() {
             </div>
             <div className="flex items-end gap-12 pb-2">
               <div className="flex flex-col items-center">
-                <div className="flex items-center gap-2 text-5xl font-light tracking-tighter text-[#1a1a1a]">
+                <div className="flex items-center gap-2 text-4xl md:text-5xl font-light tracking-tighter text-[#1a1a1a]">
                   <Users className="w-6 h-6 text-slate-400" />
                   {totalUsers}
                 </div>
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Users</span>
               </div>
               <div className="flex flex-col items-center">
-                <div className="flex items-center gap-2 text-5xl font-light tracking-tighter text-[#1a1a1a]">
+                <div className="flex items-center gap-2 text-4xl md:text-5xl font-light tracking-tighter text-[#1a1a1a]">
                   <Briefcase className="w-6 h-6 text-[#ffdd66]" />
                   {stats.projects}
                 </div>
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Projects</span>
               </div>
               <div className="flex flex-col items-center">
-                <div className="flex items-center gap-2 text-5xl font-light tracking-tighter text-[#1a1a1a] cursor-pointer hover:text-[#ffdd66] transition-colors" onClick={() => navigate('/manage-applications')}>
+                <div className="flex items-center gap-2 text-4xl md:text-5xl font-light tracking-tighter text-[#1a1a1a] cursor-pointer hover:text-[#ffdd66] transition-colors" onClick={() => navigate('/manage-applications')}>
                   {stats.applications}
                 </div>
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2 cursor-pointer hover:text-[#1a1a1a]" onClick={() => navigate('/manage-applications')}>Applications</span>
@@ -400,8 +495,7 @@ export default function AdminDashboard() {
             <>
               {/* ── Tracker Strip ──────────────── */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                <div className="col-span-1 md:col-span-3 bg-white/40 backdrop-blur-md rounded-full p-2 flex items-center border border-white/50 shadow-sm relative overflow-hidden h-14">
-                  <div className="absolute inset-0 opacity-[0.15]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #1a1a1a 25%, transparent 25%, transparent 75%, #1a1a1a 75%, #1a1a1a)', backgroundPosition: '0 0, 8px 8px', backgroundSize: '16px 16px' }} />
+                <div className="col-span-1 md:col-span-3 bg-white/60 backdrop-blur-md rounded-full p-2 flex items-center border border-white/50 shadow-sm relative overflow-hidden h-14">
                   <div className="relative z-10 flex gap-1 w-full h-full">
                     <div className="bg-[#1a1a1a] text-white text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: totalUsers > 0 ? `${Math.max((stats.contractors / totalUsers) * 100, 15)}%` : '50%' }}>
                       Contractors <span className="opacity-50 font-medium ml-auto">{stats.contractors}</span>
@@ -796,57 +890,168 @@ export default function AdminDashboard() {
                               <p className="text-xs text-white/50 line-clamp-2">{app.cover_letter || '—'}</p>
                             </td>
                             <td className="px-6 md:px-8 py-5">
-                              <span className={`text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full ${app.status === 'approved' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
-                                app.status === 'rejected' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
-                                  'bg-[#ffdd66]/10 text-[#ffdd66] border border-[#ffdd66]/20'
-                                }`}>{app.status || 'Pending'}</span>
+                              {(() => {
+                                const statusColors: Record<string, string> = {
+                                  'approved': 'bg-green-500/10 text-green-400 border-green-500/20',
+                                  // 'approved': 'bg-green-500/10 text-green-400 border-green-500/20',
+                                  'rejected': 'bg-red-500/10 text-red-400 border-red-500/20',
+                                  'shortlisted': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                                  'review': 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+                                  'pending': 'bg-[#ffdd66]/10 text-[#ffdd66] border border-[#ffdd66]/20'
+                                };
+                                return (
+                                  <span className={`text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${statusColors[app.status] || statusColors['pending']}`}>
+                                    {app.status || 'Pending'}
+                                  </span>
+                                );
+                              })()}
                             </td>
                             <td className="px-6 md:px-8 py-5 text-[11px] text-white/50">
                               {app.created_at ? new Date(app.created_at).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                             </td>
+                            <td className="px-6 md:px-8 py-5" onClick={(e) => e.stopPropagation()}>
+                              <select 
+                                value={app.status || 'pending'}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={async (e) => {
+                                  e.stopPropagation();
+                                  const newStatus = e.target.value;
+                                  // Optimistic update
+                                  setApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: newStatus } : a));
+                                  try {
+                                    await fetchApi(`/applications/${app.id}/status`, {
+                                      method: 'PUT',
+                                      body: JSON.stringify({ status: newStatus })
+                                    });
+                                  } catch (err) {
+                                    console.error('Update failed:', err);
+                                    fetchApplications(); // Revert on failure
+                                    alert('Failed to update: ' + (err as Error).message);
+                                  }
+                                }}
+                                className="bg-black/40 border border-white/10 text-white text-[10px] font-bold uppercase tracking-widest rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#ffdd66] cursor-pointer"
+                              >
+                                <option value="pending">Pending</option>
+                                <option value="accepted">Accepted</option>
+                                <option value="shortlisted">Shortlisted</option>
+                                <option value="review">Application Review</option>
+                                <option value="rejected">Rejected</option>
+                              </select>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── BIDS TAB ──────────────────────────────────────── */}
+          {activeTab === 'bids' && (
+            <div className="bg-[#1a1a1a] rounded-[2rem] shadow-xl shadow-black/10 overflow-hidden mb-8 border border-white/5 relative group">
+              <div className="absolute -top-32 -right-32 w-80 h-80 bg-[#ffdd66]/5 rounded-full blur-3xl pointer-events-none transition-transform group-hover:scale-110 duration-700" />
+              <div className="relative z-10">
+                <div className="px-6 md:px-8 py-8 border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-white flex items-center gap-3"><Users className="w-5 h-5 text-[#ffdd66]" /> Startup Bids</h2>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#ffdd66] mt-1">{bids.length} Total Bids</p>
+                  </div>
+                </div>
+
+                {bidsLoading ? (
+                  <div className="flex flex-col items-center justify-center py-20">
+                    <Activity className="w-8 h-8 text-[#ffdd66] animate-spin mb-4" />
+                    <p className="text-sm font-bold text-white/50 uppercase tracking-widest">Loading Bids...</p>
+                  </div>
+                ) : bids.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 border border-white/10">
+                      <Users className="w-6 h-6 text-white/30" />
+                    </div>
+                    <p className="text-sm font-bold text-white/50">No bids tracked yet.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full">
+                      <thead>
+                        <tr className="border-b border-white/10 bg-white/5">
+                          {['Startup ID', 'Project', 'Bid Info', 'Status', 'Date', 'Actions'].map(h => (
+                            <th key={h} className="px-6 md:px-8 py-5 text-left text-[10px] font-bold uppercase tracking-widest text-white/50">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {bids.map(bid => (
+                          <tr key={bid.id} className="hover:bg-white/5 transition-colors group cursor-pointer">
                             <td className="px-6 md:px-8 py-5">
-                              {(!app.status || app.status === 'pending') ? (
-                                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button
-                                    title="Approve"
-                                    onClick={async () => {
-                                      // Optimistic update
-                                      setApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: 'approved' } : a));
-                                      try {
-                                        await fetchApi(`/applications/${app.id}/status`, {
-                                          method: 'PUT',
-                                          body: JSON.stringify({ status: 'approved' })
-                                        });
-                                      } catch (err) {
-                                        console.error('Update failed:', err);
-                                        setApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: app.status } : a));
-                                        alert('Failed to update: ' + (err as Error).message);
-                                      }
-                                    }}
-                                    className="p-2 rounded-xl bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors"
-                                  ><Check className="w-4 h-4" /></button>
-                                  <button
-                                    title="Reject"
-                                    onClick={async () => {
-                                      // Optimistic update
-                                      setApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: 'rejected' } : a));
-                                      try {
-                                        await fetchApi(`/applications/${app.id}/status`, {
-                                          method: 'PUT',
-                                          body: JSON.stringify({ status: 'rejected' })
-                                        });
-                                      } catch (err) {
-                                        console.error('Update failed:', err);
-                                        setApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: app.status } : a));
-                                        alert('Failed to update: ' + (err as Error).message);
-                                      }
-                                    }}
-                                    className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
-                                  ><X className="w-4 h-4" /></button>
+                              <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-full bg-[#ffdd66]/20 border border-[#ffdd66]/30 flex items-center justify-center text-sm font-bold text-[#ffdd66] shrink-0">
+                                  {(bid.profiles?.full_name || bid.profiles?.email || '?')[0].toUpperCase()}
                                 </div>
-                              ) : (
-                                <span className="text-[10px] font-bold uppercase tracking-widest text-white/30">—</span>
-                              )}
+                                <div>
+                                  <p className="text-sm font-bold text-white">{bid.profiles?.full_name || 'Unknown'}</p>
+                                  <p className="text-[10px] uppercase tracking-widest text-white/40 mt-0.5" title={bid.user_id}>User ID: {bid.user_id?.substring(0,8)}...</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 md:px-8 py-5">
+                              <p className="text-sm font-semibold text-white/80">{bid.projects?.title || 'Unknown Project'}</p>
+                              <p className="text-[10px] uppercase tracking-widest text-white/40 mt-0.5" title={bid.project_id}>Project ID: {bid.project_id?.substring(0,8)}...</p>
+                            </td>
+                            <td className="px-6 md:px-8 py-5">
+                              <p className="text-sm font-bold text-[#ffdd66] mb-1">{bid.bid_amount}</p>
+                              <p className="text-[11px] text-white/50">{bid.delivery_time}</p>
+                            </td>
+                            <td className="px-6 md:px-8 py-5">
+                              {(() => {
+                                const statusColors: Record<string, string> = {
+                                  'accepted': 'bg-green-500/10 text-green-400 border-green-500/20',
+                                  'approved': 'bg-green-500/10 text-green-400 border-green-500/20',
+                                  'rejected': 'bg-red-500/10 text-red-400 border-red-500/20',
+                                  'shortlisted': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                                  'review': 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+                                  'pending': 'bg-[#ffdd66]/10 text-[#ffdd66] border border-[#ffdd66]/20'
+                                };
+                                return (
+                                  <span className={`text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${statusColors[bid.status] || statusColors['pending']}`}>
+                                    {bid.status || 'Pending'}
+                                  </span>
+                                );
+                              })()}
+                            </td>
+                            <td className="px-6 md:px-8 py-5 text-[11px] text-white/50">
+                              {bid.created_at ? new Date(bid.created_at).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                            </td>
+                            <td className="px-6 md:px-8 py-5" onClick={(e) => e.stopPropagation()}>
+                              <select 
+                                value={bid.status || 'pending'}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={async (e) => {
+                                  e.stopPropagation();
+                                  const newStatus = e.target.value;
+                                  // Optimistic update
+                                  setBids(prev => prev.map(b => b.id === bid.id ? { ...b, status: newStatus } : b));
+                                  try {
+                                    await fetchApi(`/bids/${bid.id}/status`, {
+                                      method: 'PUT',
+                                      body: JSON.stringify({ status: newStatus })
+                                    });
+                                  } catch (err) {
+                                    console.error('Update failed:', err);
+                                    fetchBids(); // Revert on failure
+                                    alert('Failed to update: ' + (err as Error).message);
+                                  }
+                                }}
+                                className="bg-black/40 border border-white/10 text-white text-[10px] font-bold uppercase tracking-widest rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#ffdd66] cursor-pointer"
+                              >
+                                <option value="pending">Pending</option>
+                                <option value="accepted">Accepted</option>
+                                <option value="shortlisted">Shortlisted</option>
+                                <option value="review">Under Review</option>
+                                <option value="rejected">Rejected</option>
+                              </select>
                             </td>
                           </tr>
                         ))}
@@ -991,7 +1196,7 @@ export default function AdminDashboard() {
           )}
 
         </div>
-      </div>
+
 
       {/* ── Modal ───────────────────────────────────────────────────────── */}
       {isProjectModalOpen && (
@@ -1101,10 +1306,17 @@ export default function AdminDashboard() {
                     <p className="text-sm font-bold text-white">{selectedApplication.profiles?.full_name || 'Unknown'}</p>
                     <p className="text-[11px] text-white/50 uppercase tracking-widest">{selectedApplication.profiles?.role}</p>
                   </div>
-                  <span className={`ml-auto text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${selectedApplication.status === 'approved' ? 'bg-green-500/10 text-green-400 border-green-500/20'
-                    : selectedApplication.status === 'rejected' ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                      : 'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20'
-                    }`}>{selectedApplication.status || 'Pending'}</span>
+                  <span className={`ml-auto text-[9px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${(() => {
+                        const colors: Record<string, string> = {
+                          'accepted': 'bg-green-500/10 text-green-400 border-green-500/20',
+                          'approved': 'bg-green-500/10 text-green-400 border-green-500/20',
+                          'rejected': 'bg-red-500/10 text-red-400 border-red-500/20',
+                          'shortlisted': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                          'review': 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+                          'pending': 'bg-[#ffdd66]/10 text-[#ffdd66] border border-[#ffdd66]/20'
+                        };
+                        return colors[selectedApplication.status] || colors['pending'];
+                      })()}`}>{selectedApplication.status || 'Pending'}</span>
                 </div>
               </div>
             </div>
@@ -1203,44 +1415,38 @@ export default function AdminDashboard() {
             </div>
 
             {/* Footer — approve / reject */}
-            {(!selectedApplication.status || selectedApplication.status === 'pending') && (
-              <div className="px-8 py-5 border-t border-slate-100 flex gap-3">
-                <button
-                  onClick={async () => {
-                    setApplications(prev => prev.map(a => a.id === selectedApplication.id ? { ...a, status: 'approved' } : a));
-                    setSelectedApplication((prev: any) => ({ ...prev, status: 'approved' }));
-                    try {
-                      await fetchApi(`/applications/${selectedApplication.id}/status`, {
-                        method: 'PUT',
-                        body: JSON.stringify({ status: 'approved' })
-                      });
-                    } catch (err) {
-                      console.error('Update failed', err);
-                    }
-                  }}
-                  className="flex-1 py-3 rounded-2xl bg-green-500/10 text-green-600 text-sm font-bold hover:bg-green-500/20 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Check className="w-4 h-4" /> Approve
-                </button>
-                <button
-                  onClick={async () => {
-                    setApplications(prev => prev.map(a => a.id === selectedApplication.id ? { ...a, status: 'rejected' } : a));
-                    setSelectedApplication((prev: any) => ({ ...prev, status: 'rejected' }));
-                    try {
-                      await fetchApi(`/applications/${selectedApplication.id}/status`, {
-                        method: 'PUT',
-                        body: JSON.stringify({ status: 'rejected' })
-                      });
-                    } catch (err) {
-                      console.error('Update failed', err);
-                    }
-                  }}
-                  className="flex-1 py-3 rounded-2xl bg-red-500/10 text-red-500 text-sm font-bold hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2"
-                >
-                  <X className="w-4 h-4" /> Reject
-                </button>
+            {/* Footer — status management */}
+            <div className="px-8 py-5 border-t border-slate-100 flex flex-col gap-4">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Update Application Status</p>
+              <div className="flex gap-2">
+                {['pending', 'accepted', 'shortlisted', 'review', 'rejected'].map((s) => (
+                  <button
+                    key={s}
+                    onClick={async () => {
+                      // Optimistic update
+                      setApplications(prev => prev.map(a => a.id === selectedApplication.id ? { ...a, status: s } : a));
+                      setSelectedApplication((prev: any) => ({ ...prev, status: s }));
+                      try {
+                        await fetchApi(`/applications/${selectedApplication.id}/status`, {
+                          method: 'PUT',
+                          body: JSON.stringify({ status: s })
+                        });
+                      } catch (err) {
+                        console.error('Update failed', err);
+                        alert('Failed to update status');
+                      }
+                    }}
+                    className={`flex-1 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border ${
+                      selectedApplication.status === s 
+                        ? 'bg-[#1a1a1a] text-[#ffdd66] border-[#1a1a1a]' 
+                        : 'bg-slate-50 text-slate-400 border-slate-100 hover:bg-slate-100'
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
               </div>
-            )}
+            </div>
           </div>
         </div>
       )}
@@ -1399,6 +1605,7 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
