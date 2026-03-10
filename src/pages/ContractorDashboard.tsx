@@ -48,39 +48,32 @@ export default function ContractorDashboard() {
 
       const userId = session.user.id;
 
-      try {
-        const profileData = await fetchApi(`/profiles/${userId}`);
-        setProfile(profileData);
-      } catch (e) {
-        console.error('Failed to fetch profile', e);
-      }
-
-      // Helper: fetch this user's applications
-      const fetchApplications = async () => {
+      const fetchInitialData = async () => {
         try {
-          const appsData = await fetchApi('/applications');
-          // The API GET /applications currently returns all apps if Admin or needs filtering.
-          // Wait, our GET /api/applications returns ALL apps by default (for Admin).
-          // We should either filter returning data, OR update backend API.
-          // Since we might not want to build complex backend filtering right this second, it's safer to filter locally for now.
-          const myApps = (appsData || []).filter((a: any) => a.user_id === userId);
-          setApplications(myApps);
-        } catch (e) {
-          console.error("Error fetching applications:", e);
-        }
-      };
-      await fetchApplications();
-
-      // Helper: fetch notifications
-      const fetchNotifs = async () => {
-        try {
-          const notifsData = await fetchApi('/notifications');
+          const [profileData, appsData, notifsData] = await Promise.all([
+            fetchApi(`/profiles/${userId}`),
+            fetchApi('/applications'),
+            fetchApi('/notifications')
+          ]);
+          if (profileData) setProfile(profileData);
+          if (appsData) setApplications(appsData.filter((a: any) => a.user_id === userId));
           if (notifsData) setNotifications(notifsData);
         } catch (e) {
-          console.error("Error fetching notifications", e);
+          console.error("Error fetching initial data", e);
         }
       };
-      fetchNotifs();
+
+      const fetchApplications = async () => {
+        const appsData = await fetchApi('/applications');
+        if (appsData) setApplications(appsData.filter((a: any) => a.user_id === userId));
+      };
+
+      const fetchNotifs = async () => {
+        const notifsData = await fetchApi('/notifications');
+        if (notifsData) setNotifications(notifsData);
+      };
+
+      await fetchInitialData();
 
       // Real-time: refresh application counts whenever status changes
       appsChannel = supabase
@@ -111,9 +104,10 @@ export default function ContractorDashboard() {
   }, []);
 
   const total = applications.length;
-  const accepted = applications.filter(a => a.status?.toLowerCase() === 'accepted' || a.status?.toLowerCase() === 'approved').length;
+  const accepted = applications.filter(a => ['accepted', 'approved'].includes(a.status?.toLowerCase())).length;
+  const shortlisted = applications.filter(a => a.status?.toLowerCase() === 'shortlisted').length;
   const rejected = applications.filter(a => a.status?.toLowerCase() === 'rejected').length;
-  const pending = applications.filter(a => !a.status || a.status?.toLowerCase() === 'pending').length;
+  const pending = applications.filter(a => !a.status || ['pending', 'review'].includes(a.status?.toLowerCase())).length;
 
   const handleAiMatch = async () => {
     if (!profile?.id) return;
@@ -231,19 +225,19 @@ export default function ContractorDashboard() {
               </div>
               <div className="flex flex-col items-center">
                 <div className="flex items-center gap-2 text-6xl font-light tracking-tighter text-[#1a1a1a]">
-                  {accepted}
+                  {accepted + shortlisted}
                 </div>
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Offers</span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Shortlisted / Offers</span>
               </div>
             </div>
           </div>
 
           {/* ── Tracker Strip (Cleaned up design like screenshot 2) ────────────── */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div className="col-span-1 md:col-span-3 bg-white rounded-full p-2 flex items-center border border-slate-200/60 shadow-sm relative overflow-hidden h-14">
+            <div className="col-span-1 md:col-span-3 bg-white/60 backdrop-blur-md rounded-full p-2 flex items-center border border-white/50 shadow-sm relative overflow-hidden h-14">
               <div className="relative z-10 flex gap-1 w-full h-full">
-                <div className="bg-[#1a1a1a] text-white text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(total > 0 ? Math.round((accepted / total) * 100) : 15, 15)}%` }}>
-                  Accepted <span className="opacity-50 font-medium ml-auto">{accepted}</span>
+                <div className="bg-[#1a1a1a] text-white text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(total > 0 ? Math.round(((accepted + shortlisted) / total) * 100) : 15, 15)}%` }}>
+                  Selected <span className="opacity-50 font-medium ml-auto">{accepted + shortlisted}</span>
                 </div>
                 <div className="bg-[#ffdd66] text-[#1a1a1a] text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(total > 0 ? Math.round((pending / total) * 100) : 15, 15)}%` }}>
                   Pending <span className="opacity-50 font-medium ml-auto">{pending}</span>
@@ -371,7 +365,7 @@ export default function ContractorDashboard() {
             {/* Center Column: Velocity / Analytics Chart */}
             <div className="col-span-1 bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 flex flex-col h-[500px] hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-6">
-                <h3 className="text-[#1a1a1a] font-semibold text-lg">Velocity</h3>
+                <h3 className="text-[#1a1a1a] font-semibold text-lg">Activities</h3>
                 <button className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-400 hover:text-black hover:border-slate-300 hover:bg-slate-50 transition-all">
                   <ArrowRight className="w-4 h-4 -rotate-45" />
                 </button>
@@ -436,22 +430,35 @@ export default function ContractorDashboard() {
                   return (
                     <div key={app.id} className="flex items-center gap-3 bg-white/5 hover:bg-white/8 rounded-2xl px-4 py-3 transition-colors">
                       {/* Status dot */}
-                      <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${isApproved ? 'bg-green-400' : isRejected ? 'bg-red-400' : 'bg-[#ffdd66]'
-                        }`} />
-                      {/* Project name */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-white truncate">{app.projects?.title || 'Unknown Project'}</p>
-                        <p className="text-[10px] text-white/40 mt-0.5">
-                          {app.created_at ? new Date(app.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                        </p>
-                      </div>
-                      {/* Status badge */}
-                      <span className={`text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border shrink-0 ${isApproved ? 'bg-green-500/10 text-green-400 border-green-500/20'
-                        : isRejected ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                          : 'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20'
-                        }`}>
-                        {isApproved ? 'Accepted' : isRejected ? 'Rejected' : 'Pending'}
-                      </span>
+                      {(() => {
+                        const status = app.status?.toLowerCase();
+                        let dotColor = 'bg-[#ffdd66]'; // default pending
+                        if (['accepted', 'approved'].includes(status)) dotColor = 'bg-green-400';
+                        else if (status === 'shortlisted') dotColor = 'bg-blue-400';
+                        else if (status === 'rejected') dotColor = 'bg-red-400';
+                        else if (status === 'review') dotColor = 'bg-orange-400';
+
+                        let badgeCls = 'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20';
+                        if (['accepted', 'approved'].includes(status)) badgeCls = 'bg-green-500/10 text-green-400 border-green-500/20';
+                        else if (status === 'shortlisted') badgeCls = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+                        else if (status === 'rejected') badgeCls = 'bg-red-500/10 text-red-400 border-red-500/20';
+                        else if (status === 'review') badgeCls = 'bg-orange-500/10 text-orange-400 border-orange-500/20';
+
+                        return (
+                          <>
+                            <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-white truncate">{app.projects?.title || 'Unknown Project'}</p>
+                              <p className="text-[10px] text-white/40 mt-0.5">
+                                {app.created_at ? new Date(app.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                              </p>
+                            </div>
+                            <span className={`text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border shrink-0 ${badgeCls}`}>
+                              {app.status || 'Pending'}
+                            </span>
+                          </>
+                        );
+                      })()}
                     </div>
                   );
                 }) : (
