@@ -1197,10 +1197,11 @@ export default function AdminDashboard() {
 
         </div>
 
+      </div>
 
       {/* ── Modal ───────────────────────────────────────────────────────── */}
       {isProjectModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#1a1a1a]/40 backdrop-blur-md">
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#1a1a1a]/40 backdrop-blur-md">
           <div className="bg-white w-full sm:max-w-xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[95dvh] sm:max-h-[90vh]">
 
             {/* Modal header */}
@@ -1283,7 +1284,7 @@ export default function AdminDashboard() {
       )}
       {/* ── APPLICATION DETAIL DIALOG ────────────────────────────────────── */}
       {selectedApplication && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedApplication(null)}>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedApplication(null)}>
           <div className="relative w-full max-w-xl bg-white rounded-[2rem] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
 
             {/* Close */}
@@ -1452,7 +1453,7 @@ export default function AdminDashboard() {
       )}
       {/* ── USER PROFILE DIALOG ───────────────────────────────────────────── */}
       {selectedUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedUser(null)}>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedUser(null)}>
           <div className="relative w-full max-w-lg bg-white rounded-[2rem] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
 
             {/* Close button */}
@@ -1605,7 +1606,6 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
-      </div>
     </div>
   );
 }

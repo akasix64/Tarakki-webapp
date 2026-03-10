@@ -68,7 +68,26 @@ export default function Projects() {
 
     const fetchProjects = async () => {
       try {
-        const data = await fetchApi('/projects');
+        // Try API first (works for authenticated users)
+        let data: any[] | null = null;
+        try {
+          data = await fetchApi('/projects');
+        } catch {
+          // API failed (e.g. unauthenticated) — fall back to direct Supabase query
+          console.log('API fetch failed, falling back to direct Supabase query');
+        }
+
+        // Fallback: fetch directly from Supabase (works for public/anon access)
+        if (!data || data.length === 0) {
+          const { data: sbData, error } = await supabase
+            .from('projects')
+            .select('*')
+            .order('created_at', { ascending: false });
+          if (!error && sbData && sbData.length > 0) {
+            data = sbData;
+          }
+        }
+
         if (data && data.length > 0) {
           setProjects(data.map((p: any) => ({
             ...p,
@@ -135,9 +154,13 @@ export default function Projects() {
         {/* ── Top Navigation ──────────────────────────────────────────────── */}
         <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
           <div className="flex items-center gap-2 bg-white/60 backdrop-blur-md rounded-full p-1.5 shadow-sm border border-white/40">
-            <button onClick={() => navigate('/dashboard')} className="px-6 py-2.5 rounded-full text-sm font-semibold text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a] transition-all">Dashboard</button>
+            {session && (
+              <button onClick={() => navigate('/dashboard')} className="px-6 py-2.5 rounded-full text-sm font-semibold text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a] transition-all">Dashboard</button>
+            )}
             <button className="px-6 py-2.5 rounded-full text-sm font-semibold bg-[#1a1a1a] text-white">Projects</button>
-            <button onClick={() => navigate('/profile')} className="px-6 py-2.5 rounded-full text-sm font-semibold text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a] transition-all">Profile</button>
+            {session && (
+              <button onClick={() => navigate('/profile')} className="px-6 py-2.5 rounded-full text-sm font-semibold text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a] transition-all">Profile</button>
+            )}
           </div>
         </div>
 

@@ -294,22 +294,27 @@ export default function AdminFinanceLogs({ projects, applications, users, subscr
                       )}
                     </td>
                     <td className="px-3 py-4">
-                      <button 
-                        onClick={async () => {
-                          const newStatus = !u.is_member;
-                          if (!confirm(`Toggle Pro Status for ${u.email}?`)) return;
-                          try {
-                            await fetchApi(`/profiles/${u.id}`, {
-                              method: 'PUT',
-                              body: JSON.stringify({ is_member: newStatus, subscription_date: newStatus ? new Date().toISOString() : null })
-                            });
-                            window.location.reload(); 
-                          } catch (err) { alert('Error: ' + (err as Error).message); }
-                        }}
-                        className="text-[9px] font-bold text-blue-500 hover:bg-blue-50 px-2 py-1 rounded transition-colors uppercase tracking-widest border border-blue-100"
-                      >
-                        {u.is_member ? 'Demote' : 'Promote'}
-                      </button>
+                      {u.is_member ? (
+                        <span className="text-[9px] font-bold text-emerald-500 px-2 py-1 rounded uppercase tracking-widest border border-emerald-100 bg-emerald-50 cursor-default inline-flex items-center gap-1">
+                          <ShieldCheck className="w-3 h-3" /> Active
+                        </span>
+                      ) : (
+                        <button 
+                          onClick={async () => {
+                            if (!confirm(`Promote ${u.email} to Pro Member?`)) return;
+                            try {
+                              await fetchApi(`/profiles/${u.id}`, {
+                                method: 'PUT',
+                                body: JSON.stringify({ is_member: true, subscription_date: new Date().toISOString() })
+                              });
+                              window.location.reload(); 
+                            } catch (err) { alert('Error: ' + (err as Error).message); }
+                          }}
+                          className="text-[9px] font-bold text-blue-500 hover:bg-blue-50 px-2 py-1 rounded transition-colors uppercase tracking-widest border border-blue-100"
+                        >
+                          Promote
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
