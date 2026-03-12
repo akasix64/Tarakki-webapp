@@ -184,10 +184,16 @@ def update_bid_status(bid_id):
     is_admin = (user_role == "admin")
     has_service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") is not None
 
+    interview_date = body.get("interview_schedule_date_and_time")
+
     try:
+        updates = {"status": status}
+        if interview_date:
+            updates["interview_schedule_date_and_time"] = interview_date
+
         results = db.update(
             "bids",
-            updates={"status": status},
+            updates=updates,
             filters={"id": bid_id},
             columns="*",
             token=None if (is_admin and has_service_key) else token,
@@ -215,7 +221,7 @@ def update_bid_status(bid_id):
         except Exception as e:
             print(f"Non-critical: Project title lookup failed: {e}")
 
-        if status in ("accepted", "approved", "rejected", "shortlisted"):
+        if status in ("accepted", "approved", "rejected", "shortlisted", "interview call"):
             notif_title = "📊 Bid Update"
             if status in ("accepted", "approved"):
                 notif_title = "🏆 Bid Accepted!"
@@ -226,6 +232,9 @@ def update_bid_status(bid_id):
             elif status == "shortlisted":
                 notif_title = "📋 Bid Shortlisted"
                 notif_msg = f'Your bid for "{project_title}" is in the final list!'
+            elif status == "interview call":
+                notif_title = "📅 Interview Call"
+                notif_msg = f'Great news! An interview has been scheduled for your bid on "{project_title}" for {interview_date or "a date to be confirmed"}.'
             else:
                 notif_msg = f'The status of your bid for "{project_title}" has changed to {status}.'
 

@@ -54,16 +54,21 @@ def get_applications():
         apps = apps_to_process
 
         filtered_apps = []
-        # Manually join profiles and filter by role if needed
+        
+        # ── O(1) Bulk Fetching for Performance ──
+        # Fetch all profiles
+        all_profiles = db.select("profiles", columns="id,full_name,email,role", use_service_key=True) or []
+        profile_map = {p["id"]: p for p in all_profiles}
+        
+        # Fetch all projects
+        all_projects = db.select("projects", columns="id,title", use_service_key=True) or []
+        project_map = {str(p["id"]): p for p in all_projects}
+
+        # Manually join profiles and filter by role
         for app in apps:
-            if app.get("user_id"):
-                p_info = db.select(
-                    "profiles",
-                    columns="full_name,email,role",
-                    filters={"id": app["user_id"]},
-                    single=True,
-                    use_service_key=True # Always use service key for profile lookup in admin/internal context
-                )
+            user_id = app.get("user_id")
+            if user_id:
+                p_info = profile_map.get(user_id)
                 if p_info:
                     # Filter: Only show Contractor applications in the "Applications" tab
                     # (Startup applications are "Bids")
@@ -71,14 +76,9 @@ def get_applications():
                         app["profiles"] = p_info
                         
                         # Get project title
-                        if app.get("project_id"):
-                            proj = db.select(
-                                "projects",
-                                columns="title",
-                                filters={"id": app["project_id"]},
-                                single=True,
-                                use_service_key=True
-                            )
+                        project_id = app.get("project_id")
+                        if project_id:
+                            proj = project_map.get(str(project_id))
                             if proj:
                                 app["projects"] = proj
                         
@@ -112,11 +112,16 @@ def update_application_status(app_id):
     has_service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") is not None
 
     status = body.get("status")
+    interview_date = body.get("interview_schedule_date_and_time")
 
     try:
+        updates = {"status": status}
+        if interview_date:
+            updates["interview_schedule_date_and_time"] = interview_date
+
         results = db.update(
             "applications",
-            updates={"status": status},
+            updates=updates,
             filters={"id": app_id},
             columns="*",
             token=None if (is_admin and has_service_key) else token,
@@ -145,7 +150,7 @@ def update_application_status(app_id):
             print(f"Non-critical: Project title lookup failed: {e}")
 
         # Notification side effect
-        if status in ("accepted", "approved", "rejected", "shortlisted", "review"):
+        if status in ("accepted", "approved", "rejected", "shortlisted", "review", "interview call"):
             try:
                 if status in ("accepted", "approved"):
                     notif_title = "🎉 Application Accepted!"
@@ -159,6 +164,9 @@ def update_application_status(app_id):
                 elif status == "review":
                     notif_title = "🔍 Under Review"
                     notif_msg = f'Your application for "{project_title}" is currently under review.'
+                elif status == "interview call":
+                    notif_title = "📅 Interview Scheduled!"
+                    notif_msg = f'Great news! An interview has been scheduled for "{project_title}" on {interview_date or "a date to be confirmed"}.'
                 else:
                     notif_title = "📝 Application Update"
                     notif_msg = f'The status of your application for "{project_title}" has been updated to {status}.'

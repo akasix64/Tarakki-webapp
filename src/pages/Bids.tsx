@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Activity, Clock, Search, Filter, ArrowRight, Briefcase } from 'lucide-react';
+import { Users, Activity, Clock, Search, Filter, ArrowRight, Briefcase, Calendar } from 'lucide-react';
 import { fetchApi } from '../lib/api';
 import { supabase } from '../lib/supabase';
 
@@ -8,6 +8,8 @@ export default function Bids() {
   const [bids, setBids] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [interviewModal, setInterviewModal] = useState<{ bidId: string; visible: boolean }>({ bidId: '', visible: false });
+  const [interviewDateTime, setInterviewDateTime] = useState('');
 
   useEffect(() => {
     const fetchUserAndBids = async () => {
@@ -31,13 +33,17 @@ export default function Bids() {
     fetchUserAndBids();
   }, []);
 
-  const updateStatus = async (bidId: string, newStatus: string) => {
+  const updateStatus = async (bidId: string, newStatus: string, metadata?: any) => {
     // Optimistic update
-    setBids(prev => prev.map(b => b.id === bidId ? { ...b, status: newStatus } : b));
+    setBids(prev => prev.map(b => b.id === bidId ? { ...b, status: newStatus, ...metadata } : b));
     try {
+      const body: any = { status: newStatus };
+      if (metadata) {
+        Object.assign(body, metadata);
+      }
       await fetchApi(`/bids/${bidId}/status`, {
         method: 'PUT',
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify(body)
       });
     } catch (err) {
       console.error('Update failed:', err);
@@ -46,6 +52,16 @@ export default function Bids() {
       if (data) setBids(data);
       alert('Failed to update status');
     }
+  };
+
+  const handleScheduleInterview = () => {
+    if (!interviewDateTime) {
+      alert('Please select a date and time');
+      return;
+    }
+    updateStatus(interviewModal.bidId, 'interview call', { interview_schedule_date_and_time: interviewDateTime });
+    setInterviewModal({ bidId: '', visible: false });
+    setInterviewDateTime('');
   };
 
   return (
@@ -136,19 +152,30 @@ export default function Bids() {
                   {userRole === 'admin' ? (
                     <select
                       value={bid.status || 'pending'}
-                      onChange={(e) => updateStatus(bid.id, e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'interview call') {
+                          setInterviewModal({ bidId: bid.id, visible: true });
+                        } else {
+                          updateStatus(bid.id, val);
+                        }
+                      }}
                       className="bg-slate-50 border border-slate-200 text-[#1a1a1a] text-[10px] font-bold uppercase tracking-widest rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#ffdd66]/20 cursor-pointer hover:bg-white transition-all shadow-sm"
                     >
                       <option value="pending">Pending</option>
                       <option value="accepted">Accepted</option>
                       <option value="shortlisted">Shortlisted</option>
                       <option value="review">Under Review</option>
+                      <option value="interview call">Interview Call</option>
                       <option value="rejected">Rejected</option>
                     </select>
                   ) : (
                     <div className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border shadow-sm ${
-                      bid.status === 'accepted' ? 'bg-green-50 text-green-600 border-green-100' :
-                      bid.status === 'rejected' ? 'bg-red-50 text-red-600 border-red-100' :
+                      ['accepted', 'approved'].includes(bid.status?.toLowerCase()) ? 'bg-green-50 text-green-600 border-green-100' :
+                      bid.status?.toLowerCase() === 'shortlisted' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' :
+                      bid.status?.toLowerCase() === 'interview call' ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                      bid.status?.toLowerCase() === 'review' ? 'bg-orange-50 text-orange-600 border-orange-100' :
+                      bid.status?.toLowerCase() === 'rejected' ? 'bg-red-50 text-red-600 border-red-100' :
                       'bg-[#ffdd66]/10 text-[#1a1a1a] border-[#ffdd66]/20'
                     }`}>
                       {bid.status || 'pending'}
@@ -171,6 +198,18 @@ export default function Bids() {
                   </div>
                 </div>
 
+                {bid.interview_schedule_date_and_time && (
+                  <div className="mb-8 p-6 bg-blue-50/50 rounded-[2rem] border border-blue-100 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-blue-400 mb-1">Bidding Scheduled</p>
+                      <p className="text-sm font-bold text-[#1a1a1a]">
+                        {new Date(bid.interview_schedule_date_and_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                      </p>
+                    </div>
+                    <Calendar className="w-8 h-8 text-blue-200" />
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between pt-6 border-t border-slate-100">
                   <div className="flex items-center gap-2 text-slate-400">
                     <Clock className="w-4 h-4" />
@@ -187,6 +226,47 @@ export default function Bids() {
           </div>
         )}
       </div>
+
+      {/* Interview Modal */}
+      {interviewModal.visible && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-6">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[3rem] shadow-2xl p-10 max-w-md w-full border border-white"
+          >
+            <h3 className="text-2xl font-black text-[#1a1a1a] mb-2 flex items-center gap-3">
+              <Calendar className="w-6 h-6 text-[#ffdd66]" /> Schedule Call
+            </h3>
+            <p className="text-sm text-slate-500 mb-8 font-medium italic">Set the date and time for the interview call with the startup.</p>
+            
+            <div className="space-y-4 mb-10">
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 pl-2">Date & Time</label>
+              <input 
+                type="datetime-local" 
+                value={interviewDateTime}
+                onChange={(e) => setInterviewDateTime(e.target.value)}
+                className="w-full h-16 px-6 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-[#ffdd66]/10 transition-all font-bold text-[#1a1a1a]"
+              />
+            </div>
+
+            <div className="flex gap-4">
+              <button 
+                onClick={() => setInterviewModal({ bidId: '', visible: false })}
+                className="flex-1 py-4 rounded-2xl bg-slate-50 text-slate-400 font-bold text-sm hover:bg-slate-100 transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleScheduleInterview}
+                className="flex-1 py-4 rounded-2xl bg-[#1a1a1a] text-[#ffdd66] font-bold text-sm shadow-xl shadow-black/10 hover:-translate-y-1 transition-all"
+              >
+                Schedule Now
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

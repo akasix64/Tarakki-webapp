@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
     Briefcase, Building2, User, Clock, FileText, CheckCircle2,
-    AlertCircle, ArrowLeft, Loader2, IndianRupee, MapPin
+    AlertCircle, ArrowLeft, Loader2, IndianRupee, MapPin, Calendar
 } from 'lucide-react';
 
 import { fetchApi } from '../lib/api';
@@ -27,6 +27,8 @@ export default function ApplyForm() {
         availability: '',
         cover_letter: ''
     });
+
+    const [existingApplication, setExistingApplication] = useState<any>(null);
 
     useEffect(() => {
         (async () => {
@@ -55,6 +57,12 @@ export default function ApplyForm() {
                             company: 'egisedge',
                         });
                     }
+                }
+                // Check for existing application
+                const apps = await fetchApi('/applications');
+                const existing = apps?.find((a: any) => String(a.project_id) === String(projectId));
+                if (existing) {
+                    setExistingApplication(existing);
                 }
             } catch (err) {
                 console.error("Error fetching data for apply form:", err);
@@ -104,6 +112,115 @@ export default function ApplyForm() {
         return (
             <div className="flex items-center justify-center min-h-[60vh] bg-[#f8f9f4]">
                 <Loader2 className="w-8 h-8 animate-spin text-[#1a1a1a]" />
+            </div>
+        );
+    }
+
+    if (existingApplication) {
+        const status = existingApplication.status?.toLowerCase() || 'pending';
+        
+        const steps = [
+            { label: 'Applied', date: new Date(existingApplication.created_at).toLocaleDateString(), completed: true, current: status === 'pending', icon: <FileText className="w-4 h-4" /> },
+            { label: 'Under Review', date: status !== 'pending' ? 'Completed' : 'In Progress', completed: status !== 'pending' && status !== 'interview call', current: status === 'shortlisted' || status === 'under review', icon: <User className="w-4 h-4" /> },
+            { 
+               label: 'Interview Scheduled', 
+               date: status === 'interview call' ? new Date(existingApplication.interview_schedule_date_and_time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : (status === 'accepted' ? 'Completed' : 'Waiting'), 
+               completed: status === 'accepted' || status === 'approved', 
+               current: status === 'interview call', 
+               icon: <Calendar className="w-4 h-4" /> 
+            },
+            { label: status === 'rejected' ? 'Rejected' : 'Final Decision', date: (status === 'accepted' || status === 'rejected') ? 'Finalized' : 'Waiting', completed: (status === 'accepted' || status === 'rejected'), current: (status === 'accepted' || status === 'rejected') && status !== 'interview call', icon: status === 'rejected' ? <AlertCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" /> },
+        ];
+
+        return (
+            <div className="fixed inset-x-0 top-16 bottom-0 overflow-y-auto font-sans selection:bg-[#ffdd66] selection:text-black" style={{ background: 'linear-gradient(135deg, #f8f9f4 0%, #f0ebd8 50%, #fefcf3 100%)' }}>
+                <div className="max-w-4xl mx-auto px-6 py-10">
+                    <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-[#1a1a1a] transition-all mb-8 group">
+                        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" /> Back to Dashboard
+                    </button>
+
+                    <div className="mb-10">
+                        <div className="flex items-center gap-3 mb-3">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
+                                ['accepted', 'approved'].includes(status) ? 'bg-green-100 text-green-700' : 
+                                status === 'shortlisted' ? 'bg-indigo-100 text-indigo-700' :
+                                status === 'interview call' ? 'bg-purple-100 text-purple-700' :
+                                status === 'review' ? 'bg-orange-100 text-orange-700' :
+                                status === 'rejected' ? 'bg-red-100 text-red-700' : 
+                                'bg-[#ffdd66]/20 text-[#1a1a1a]'}`}>
+                                {status}
+                            </span>
+                        </div>
+                        <h1 className="text-4xl md:text-5xl font-light tracking-tight text-[#1a1a1a] leading-tight max-w-2xl">
+                            {project?.title || existingApplication.projects?.title || 'Project Role'}
+                        </h1>
+                        <div className="flex items-center gap-2 mt-4 text-[#1a1a1a]/60 font-medium">
+                            <Building2 className="w-4 h-4" /> {project?.company || existingApplication.projects?.company_name || 'egisedge'}
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        {/* Timeline Column */}
+                        <div className="md:col-span-1">
+                            <div className="bg-white/60 backdrop-blur-md rounded-[2rem] border border-white/50 shadow-sm p-8">
+                                <h3 className="text-sm font-bold uppercase tracking-widest text-[#1a1a1a]/40 mb-8">Application Tracker</h3>
+                                <div className="space-y-0 relative">
+                                    <div className="absolute left-[19px] top-2 bottom-2 w-0.5 bg-slate-100" />
+                                    {steps.map((step, idx) => (
+                                        <div key={idx} className="relative flex gap-6 pb-10 last:pb-0">
+                                            <div className={`relative z-10 w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${step.completed ? 'bg-[#1a1a1a] border-[#1a1a1a] text-white' : step.current ? 'bg-[#ffdd66] border-[#ffdd66] text-[#1a1a1a]' : 'bg-white border-slate-100 text-slate-300'}`}>
+                                                {step.icon}
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className={`text-sm font-bold ${step.current ? 'text-[#1a1a1a]' : 'text-[#1a1a1a]/60'}`}>{step.label}</span>
+                                                <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mt-1">{step.date}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Details Column */}
+                        <div className="md:col-span-2 space-y-6">
+                            <div className="bg-[#1a1a1a] rounded-[2rem] p-8 text-white shadow-xl shadow-black/10">
+                                <h3 className="text-[#ffdd66] text-xs font-bold uppercase tracking-widest mb-6">Your Submission</h3>
+                                <div className="space-y-6">
+                                    <div>
+                                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-2">Cover Letter / Pitch</p>
+                                        <p className="text-sm text-white/80 leading-relaxed italic">"{existingApplication.cover_letter}"</p>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-1">Expected Rate</p>
+                                            <p className="text-sm font-semibold">{existingApplication.expected_rate}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-1">Availability</p>
+                                            <p className="text-sm font-semibold">{existingApplication.availability}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-white/40 backdrop-blur-md rounded-[2rem] border border-white/50 p-8">
+                                <h3 className="text-[#1a1a1a] text-xs font-bold uppercase tracking-widest mb-4">What's Next?</h3>
+                                <p className="text-sm text-slate-600 leading-relaxed">
+                                    {status === 'pending' 
+                                        ? "The client is currently reviewing your profile and application details. You will be notified once they take an action."
+                                        : status === 'interview call'
+                                        ? `You have an interview scheduled for ${new Date(existingApplication.interview_schedule_date_and_time).toLocaleString([], { dateStyle: 'long', timeStyle: 'short' })}. Please be prepared and check your email for any meeting links.`
+                                        : status === 'accepted' || status === 'approved'
+                                        ? "Congratulations! Your application has been approved. The client will reach out to you via email for further onboarding."
+                                        : status === 'rejected'
+                                        ? "The client decided to move forward with other candidates at this time. Don't worry, there are plenty of other Oracle opportunities!"
+                                        : "Your application is being processed."
+                                    }
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         );
     }

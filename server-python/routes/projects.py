@@ -21,6 +21,25 @@ def get_projects():
             columns="*",
             order="created_at.desc",
         )
+        
+        import os
+        has_service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") is not None
+        
+        try:
+            apps = db.select("applications", columns="project_id", use_service_key=has_service_key)
+            app_counts = {}
+            if apps and isinstance(apps, list):
+                for app in apps:
+                    pid = str(app.get("project_id"))
+                    app_counts[pid] = app_counts.get(pid, 0) + 1
+            
+            for p in data:
+                p["applicant_count"] = app_counts.get(str(p["id"]), 0)
+        except Exception as e:
+            print(f"Could not fetch application counts: {e}")
+            for p in data:
+                p["applicant_count"] = 0
+
         print(f"Fetch projects result: Success ({len(data)} records)")
         return jsonify(data)
 

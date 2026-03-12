@@ -315,9 +315,9 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <Zap className="w-6 h-6 text-[#ffdd66] fill-[#ffdd66]" />
-            <span className="text-[#1a1a1a] font-bold tracking-tight text-2xl">Tarakki</span>
+            <span className="text-[#1a1a1a] font-bold tracking-tight text-2xl">Oracle Contracts</span>
           </div>
-          <p className="text-sm text-[#1a1a1a]/40 font-bold tracking-wide">© {new Date().getFullYear()} Tarakki. All rights reserved.</p>
+          <p className="text-sm text-[#1a1a1a]/40 font-bold tracking-wide">© {new Date().getFullYear()} Oracle Contracts. All rights reserved.</p>
         </div>
       </footer>
     </div>
