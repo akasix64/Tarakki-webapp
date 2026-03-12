@@ -1,10 +1,14 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
+} from 'recharts';
 import { supabase } from '../lib/supabase';
 import {
   LayoutDashboard, FolderOpen, Users, ChevronRight,
   CheckCircle, Clock, Plus, Bell, Settings, UserCircle,
-  TrendingUp, Menu, Star, Building2, ArrowUpRight, Briefcase, ArrowRight
+  TrendingUp, Menu, Star, Building2, ArrowUpRight, Briefcase, ArrowRight, Calendar as CalendarIcon
 } from 'lucide-react';
 import { fetchApi } from '../lib/api';
 
@@ -40,68 +44,105 @@ export default function StartupDashboard() {
 
   const isActive = isMemberActive(profile);
 
+  // ─── Caching & Hydration ──────────────────────────────────────────────────
+  const CACHE_KEY = `startup_cache_${profile?.id || 'anonymous'}`;
+
+  // Initial Load from LocalStorage
   useEffect(() => {
-    const fetchData = async () => {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) {
+      try {
+        const { profile, projects, applications, bids, receivedBids, notifications } = JSON.parse(cached);
+        if (profile) setProfile(profile);
+        if (projects) setProjects(projects);
+        if (applications) setApplications(applications);
+        if (bids) setBids(bids);
+        if (receivedBids) setReceivedBids(receivedBids);
+        if (notifications) setNotifications(notifications);
+      } catch (e) { console.error("Cache Hydration Error:", e); }
+    }
+  }, [CACHE_KEY]);
+
+  const saveToCache = (data: any) => {
+    const current = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ...current, ...data }));
+  };
+
+  useEffect(() => {
+    const initSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        // Fetch notifications
-        const fetchCombinedData = async () => {
-          try {
-            const [profileData, projectsData, appsData, bidsData, notifsData] = await Promise.all([
-              fetchApi(`/profiles/${session.user.id}`),
-              fetchApi('/projects'),
-              fetchApi('/applications'),
-              fetchApi('/bids'),
-              fetchApi('/notifications')
-            ]);
-            if (profileData) setProfile(profileData);
-            const sId = profileData?.id || session.user.id;
-            const myProj = (projectsData || []).filter((p: any) => p.startup_id === sId);
-            setProjects(myProj.map((p: any) => ({ ...p, teamSize: p.team_size || 0, posted: new Date(p.created_at).toLocaleDateString() })));
-            const sProjIds = myProj.map((p: any) => p.id);
-            if (appsData) setApplications(appsData.filter((a: any) => sProjIds.includes(a.project_id)));
-            if (bidsData) {
-              setBids(bidsData.filter((b: any) => b.user_id === session.user.id));
-              setReceivedBids(bidsData.filter((b: any) => sProjIds.includes(b.project_id)));
-            }
-            if (notifsData) setNotifications(notifsData);
-          } catch (e) {
-            console.error('Error fetching combined dashboard data:', e);
-          }
-        };
+      if (!session) return;
 
-        const fetchNotifs = async () => {
-          try {
-            const notifsData = await fetchApi('/notifications');
-            if (notifsData) setNotifications(notifsData);
-          } catch (e) {
-            console.error(e);
-          }
-        };
+      const userId = session.user.id;
 
-        fetchCombinedData();
+      // ─── Atomic Fetchers ───────────────────────────────────────────────────
+      const fetchProfile = async () => {
+        const data = await fetchApi(`/profiles/${userId}`);
+        if (data) {
+          setProfile(data);
+          saveToCache({ profile: data });
+        }
+        return data;
+      };
 
-        // Real-time subscriptions
-        const notifCh = supabase.channel('notifs-startup').on('postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${session.user.id}` },
-          () => fetchNotifs()).subscribe();
+      const fetchProjectsAndRelated = async (currentProfile?: any) => {
+        const [projectsData, appsData, bidsData] = await Promise.all([
+          fetchApi('/projects'),
+          fetchApi('/applications'),
+          fetchApi('/bids')
+        ]);
 
-        const bidsCh = supabase.channel('bids-startup').on('postgres_changes',
-          { event: '*', schema: 'public', table: 'bids', filter: `user_id=eq.${session.user.id}` },
-          () => fetchData()).subscribe();
+        const sId = currentProfile?.id || userId;
+        const myProj = (projectsData || []).filter((p: any) => p.startup_id === sId);
+        const processedProj = myProj.map((p: any) => ({ ...p, teamSize: p.team_size || 0, posted: new Date(p.created_at).toLocaleDateString() }));
+        const sProjIds = myProj.map((p: any) => p.id);
+        
+        const myApps = (appsData || []).filter((a: any) => sProjIds.includes(a.project_id));
+        const myBids = (bidsData || []).filter((b: any) => b.user_id === userId);
+        const rBids = (bidsData || []).filter((b: any) => sProjIds.includes(b.project_id));
 
-        const projCh = supabase.channel('proj-startup').on('postgres_changes',
-          { event: '*', schema: 'public', table: 'projects', filter: `startup_id=eq.${session.user.id}` },
-          () => fetchData()).subscribe();
+        setProjects(processedProj);
+        setApplications(myApps);
+        setBids(myBids);
+        setReceivedBids(rBids);
 
-        return () => { 
-          supabase.removeChannel(notifCh); 
-          supabase.removeChannel(bidsCh);
-          supabase.removeChannel(projCh);
-        };
-      }
+        saveToCache({ projects: processedProj, applications: myApps, bids: myBids, receivedBids: rBids });
+      };
+
+      const fetchNotifs = async () => {
+        const data = await fetchApi('/notifications');
+        if (data) {
+          setNotifications(data);
+          saveToCache({ notifications: data });
+        }
+      };
+
+      // ─── Initial Full Fetch ────────────────────────────────────────────────
+      const profile = await fetchProfile();
+      fetchProjectsAndRelated(profile);
+      fetchNotifs();
+
+      // ─── Real-time Subscriptions ───────────────────────────────────────────
+      const notifCh = supabase.channel('notifs-startup').on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
+        () => fetchNotifs()).subscribe();
+
+      const bidsCh = supabase.channel('bids-startup').on('postgres_changes',
+        { event: '*', schema: 'public', table: 'bids' },
+        () => fetchProjectsAndRelated()).subscribe(); // Bids affect project metrics
+
+      const projCh = supabase.channel('proj-startup').on('postgres_changes',
+        { event: '*', schema: 'public', table: 'projects', filter: `startup_id=eq.${userId}` },
+        () => fetchProjectsAndRelated()).subscribe();
+
+      return () => { 
+        supabase.removeChannel(notifCh); 
+        supabase.removeChannel(bidsCh);
+        supabase.removeChannel(projCh);
+      };
     };
-    fetchData();
+
+    initSession();
   }, []);
 
   // Close dropdown on outside click
@@ -117,18 +158,62 @@ export default function StartupDashboard() {
   const completed = projects.filter(p => p.status === 'Completed').length;
   const totalTeam = projects.reduce((a, p) => a + (p.teamSize || 0), 0);
 
-  const totalAppsCount = applications.length;
-  const pendingAppsCount = applications.filter(a => {
-    const s = a.status?.toLowerCase();
-    return !s || s === 'pending';
-  }).length;
-  const acceptedAppsCount = applications.filter(a => {
-    const s = a.status?.toLowerCase();
-    return ['accepted', 'approved', 'shortlisted'].includes(s);
-  }).length;
+  const totalBidsCount = bids.length;
+  const totalReceivedApps = applications.length;
+  const totalReceivedBids = receivedBids.length;
 
-  const hiringRate = total > 0 ? Math.round((hiring / total) * 100) : 0;
-  const activeRate = total > 0 ? Math.round((inProgress / total) * 100) : 0;
+  // Consolidate all activity (Sent Bids + Received Apps + Received Bids) for the dashboard overview
+  const allActivity = useMemo(() => {
+    const combined = [
+      ...bids.map(b => ({ ...b, activityType: 'personal_bid' })),
+      ...receivedBids.map(b => ({ ...b, activityType: 'received_bid' })),
+      ...applications.map(a => ({ ...a, activityType: 'received_app' }))
+    ];
+    return combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [bids, receivedBids, applications]);
+
+  // Enrich projects with the 'most advanced' status from their received bids/apps
+  const enrichedProjects = useMemo(() => {
+    return projects.map(p => {
+      const related = allActivity.filter(a => a.project_id === p.id);
+      if (related.length === 0) return p;
+      
+      const statusOrder = ['accepted', 'approved', 'shortlisted', 'interview call', 'review', 'pending'];
+      let bestStatus = p.status?.toLowerCase() || 'pending';
+      
+      for (const s of statusOrder) {
+        if (related.some(r => r.status?.toLowerCase() === s)) {
+          bestStatus = s;
+          break;
+        }
+      }
+      return { 
+        ...p, 
+        status: bestStatus === 'interview call' ? 'Interview Call' : bestStatus.charAt(0).toUpperCase() + bestStatus.slice(1) 
+      };
+    });
+  }, [projects, allActivity]);
+
+  const acceptedCount = allActivity.filter(a => ['accepted', 'approved'].includes(a.status?.toLowerCase())).length;
+  const shortlistedCount = allActivity.filter(a => a.status?.toLowerCase() === 'shortlisted').length;
+  const reviewCount = allActivity.filter(a => a.status?.toLowerCase() === 'review').length;
+  const interviewsCount = allActivity.filter(a => a.status?.toLowerCase() === 'interview call').length;
+  const rejectedCount = allActivity.filter(a => a.status?.toLowerCase() === 'rejected').length;
+  const pendingCount = allActivity.filter(a => !a.status || a.status?.toLowerCase() === 'pending').length;
+
+  const totalActivity = allActivity.length;
+  const inReviewTotal = pendingCount + reviewCount;
+  const activePursuitsTotal = acceptedCount + shortlistedCount + interviewsCount;
+
+  const incomingInterviews = allActivity.filter(a => ['shortlisted', 'interview call'].includes(a.status?.toLowerCase()));
+
+  // Project health based on enriched status
+  const hiringCount = enrichedProjects.filter(p => !['Completed', 'In Progress'].includes(p.status)).length;
+  const activeCount = enrichedProjects.filter(p => p.status === 'In Progress').length;
+  const totalProjCount = projects.length;
+
+  const hiringRate = totalProjCount > 0 ? Math.round((hiringCount / totalProjCount) * 100) : 0;
+  const activeRate = totalProjCount > 0 ? Math.round((activeCount / totalProjCount) * 100) : 0;
 
   // Compute bids over the last 7 days
   const last7DaysBids = useMemo(() => {
@@ -196,7 +281,7 @@ export default function StartupDashboard() {
     <div className="fixed inset-x-0 top-16 bottom-0 overflow-y-auto font-sans selection:bg-[#ffdd66] selection:text-black" style={{ background: 'linear-gradient(135deg, #f8f9f4 0%, #f0ebd8 50%, #fefcf3 100%)' }}>
 
       {/* ── Top Navigation Pill Bar ────────────────────────────────────────── */}
-      <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
+      <div className="w-full max-w-[96%] mx-auto px-6 py-6 flex items-center justify-between">
         <div className="flex items-center gap-2 bg-white/60 backdrop-blur-md rounded-full p-1.5 shadow-sm border border-white/40">
           <button onClick={() => setActiveTab('overview')} className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all ${activeTab === 'overview' ? 'bg-[#1a1a1a] text-white' : 'text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a]'}`}>Dashboard</button>
           <button onClick={() => navigate('/projects')} className="px-6 py-2.5 rounded-full text-sm font-semibold text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a] transition-all">Projects</button>
@@ -259,7 +344,7 @@ export default function StartupDashboard() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 pb-20">
+      <div className="w-full max-w-[96%] mx-auto px-6 pb-20">
 
         {/* ── Header & Big Stats ────────────────────────────────────────────── */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-10 pt-4">
@@ -271,29 +356,23 @@ export default function StartupDashboard() {
           <div className="flex items-end gap-12 pb-2">
             <div className="flex flex-col items-center">
               <div className="flex items-center gap-2 text-5xl font-light tracking-tighter text-[#1a1a1a]">
-                <FolderOpen className="w-6 h-6 text-slate-400" />
-                {total}
+                <Briefcase className="w-6 h-6 text-slate-400" />
+                {totalActivity}
               </div>
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Roles</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Total Activity</span>
             </div>
             <div className="flex flex-col items-center">
               <div className="flex items-center gap-2 text-5xl font-light tracking-tighter text-[#1a1a1a]">
                 <Clock className="w-6 h-6 text-[#ffdd66]" />
-                {inProgress}
+                {inReviewTotal}
               </div>
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Active</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">In Review</span>
             </div>
             <div className="flex flex-col items-center">
               <div className="flex items-center gap-2 text-6xl font-light tracking-tighter text-[#1a1a1a]">
-                {totalAppsCount}
+                {activePursuitsTotal}
               </div>
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Incoming</span>
-            </div>
-            <div className="flex flex-col items-center">
-              <div className="flex items-center gap-2 text-6xl font-light tracking-tighter text-[#1a1a1a]">
-                {bids.length}
-              </div>
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">My Bids</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Active Pursuits</span>
             </div>
           </div>
         </div>
@@ -302,11 +381,11 @@ export default function StartupDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="col-span-1 md:col-span-3 bg-white/60 backdrop-blur-md rounded-full p-2 flex items-center border border-white/50 shadow-sm relative overflow-hidden h-14">
             <div className="relative z-10 flex gap-1 w-full h-full">
-              <div className="bg-[#1a1a1a] text-white text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(activeRate, 15)}%` }}>
-                Active <span className="opacity-50 font-medium ml-auto">{activeRate}%</span>
+              <div className="bg-[#1a1a1a] text-white text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(totalActivity > 0 ? Math.round((activePursuitsTotal / totalActivity) * 100) : 15, 15)}%` }}>
+                Engaged <span className="opacity-50 font-medium ml-auto">{activePursuitsTotal}</span>
               </div>
-              <div className="bg-[#ffdd66] text-[#1a1a1a] text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(hiringRate, 15)}%` }}>
-                Hiring <span className="opacity-50 font-medium ml-auto">{hiringRate}%</span>
+              <div className="bg-[#ffdd66] text-[#1a1a1a] text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(totalActivity > 0 ? Math.round((inReviewTotal / totalActivity) * 100) : 15, 15)}%` }}>
+                In Review <span className="opacity-50 font-medium ml-auto">{inReviewTotal}</span>
               </div>
               <div className="bg-white/80 border border-slate-200 text-[#1a1a1a] text-xs font-semibold px-5 h-full rounded-full flex items-center justify-between ml-auto shadow-sm whitespace-nowrap max-w-[120px]">
                 Portfolio <span>100%</span>
@@ -381,195 +460,227 @@ export default function StartupDashboard() {
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
-            {/* Profile Photo Card — like reference image */}
-            <div className="lg:col-span-1 rounded-[2rem] shadow-2xl shadow-black/10 relative overflow-hidden h-[380px] group cursor-pointer" onClick={() => navigate('/profile')}>
-              {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt={profile?.full_name} className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-              ) : (
-                <div className="absolute inset-0 bg-[#1a1a1a] flex items-center justify-center">
-                  <div className="absolute -top-32 -right-32 w-80 h-80 bg-white/5 rounded-full blur-3xl" />
-                  <div className="absolute -bottom-32 -left-32 w-80 h-80 bg-[#ffdd66]/10 rounded-full blur-3xl" />
-                  <span className="text-[120px] font-light text-white/10 select-none leading-none">
-                    {(profile?.full_name || '?')[0].toUpperCase()}
-                  </span>
-                </div>
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-              <div className="absolute bottom-0 left-0 right-0 p-6 z-10">
-                <h2 className="text-2xl font-bold text-white leading-tight mb-1">
-                  {profile?.full_name || 'My Company'}
-                </h2>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-white/70">{profile?.industry || 'Startup'}</p>
-                  {profile?.is_member && (
-                    <span className="px-4 py-1.5 rounded-full bg-[#ffdd66] text-[#1a1a1a] text-xs font-bold shadow-lg">Pro</span>
+            {/* Profile Photo Card */}
+            <div className="lg:col-span-1 bg-white rounded-[2rem] shadow-sm border border-slate-100 p-8 flex flex-col items-center h-auto min-h-[420px]">
+              <div className="relative w-32 h-32 mb-4">
+                <div className="absolute inset-0 rounded-full border-[3px] border-emerald-500" />
+                <div className="absolute inset-1 rounded-full overflow-hidden border-2 border-white shadow-md">
+                  {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt={profile?.full_name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-400 text-3xl font-bold">
+                      {avatarInitial}
+                    </div>
                   )}
                 </div>
-              </div>
-              {!profile?.avatar_url && (
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                  <div className="w-14 h-14 rounded-full border-2 border-dashed border-white/40 flex items-center justify-center">
-                    <CheckCircle className="w-6 h-6 text-white/50" />
-                  </div>
-                  <p className="text-xs text-white/50 font-semibold tracking-wide">Add profile photo</p>
+                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white border border-slate-100 px-2.5 py-0.5 rounded-full shadow-sm text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
+                  100%
                 </div>
-              )}
+              </div>
+
+              <h2 className="text-xl font-bold text-[#1a1a1a] mb-1">{profile?.full_name || 'Your Company'}</h2>
+              <p className="text-sm text-slate-500 text-center leading-tight mb-4 px-4">
+                {profile?.industry || 'Oracle Startup'} @ {profile?.location || 'Oracle Network'}
+              </p>
+              
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Partner since 2024</p>
+
+              <button 
+                onClick={() => navigate('/profile')}
+                className="w-full py-3 px-6 bg-[#1a1a1a] text-white rounded-full font-bold text-sm shadow-xl hover:bg-black transition-all mb-4"
+              >
+                Company Profile
+              </button>
             </div>
 
-            {/* Center Column: Interest / Analytics Chart */}
-            <div className="col-span-1 bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 flex flex-col h-[380px] hover:shadow-md transition-shadow">
-              <div className="flex justify-between items-start mb-6">
-                <h3 className="text-[#1a1a1a] font-semibold text-lg">Bidding Pipeline</h3>
-                <button className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-400 hover:text-black hover:border-slate-300 hover:bg-slate-50 transition-all">
-                  <ArrowRight className="w-4 h-4 -rotate-45" />
-                </button>
+            {/* Bid Status Tracker (Match Contractor Dashboard design) */}
+            <div className="col-span-1 bg-white rounded-[2rem] p-7 shadow-sm border border-slate-100 flex flex-col h-[420px]">
+              <div className="flex justify-between items-center mb-5">
+                <h3 className="text-[#1a1a1a] font-bold text-base">Pipeline Status</h3>
+                <span className="text-3xl font-light tracking-tighter text-slate-200">{totalActivity}</span>
               </div>
-
-              <div className="flex items-end gap-3 mb-10">
-                <span className="text-6xl font-light tracking-tighter text-[#1a1a1a] leading-none">+{bids.length}</span>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-tight mb-1.5 flex flex-col gap-0.5"><span>Total</span><span>Bids Placed</span></span>
+              <div className="grid grid-cols-6 gap-1.5 mb-4">
+                <div className="bg-green-50 border border-green-100 rounded-xl px-1 py-2 text-center text-green-600"><p className="text-base font-bold">{acceptedCount}</p><p className="text-[6px] font-bold uppercase tracking-widest opacity-70">Appr.</p></div>
+                <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-1 py-2 text-center text-indigo-600"><p className="text-base font-bold">{shortlistedCount}</p><p className="text-[6px] font-bold uppercase tracking-widest opacity-70">Short.</p></div>
+                <div className="bg-purple-50 border border-purple-100 rounded-xl px-1 py-2 text-center text-purple-600"><p className="text-base font-bold">{interviewsCount}</p><p className="text-[6px] font-bold uppercase tracking-widest opacity-70">Call</p></div>
+                <div className="bg-orange-50 border border-orange-100 rounded-xl px-1 py-2 text-center text-orange-600"><p className="text-base font-bold">{reviewCount}</p><p className="text-[6px] font-bold uppercase tracking-widest opacity-70">Rev.</p></div>
+                <div className="bg-slate-50 border border-slate-100 rounded-xl px-1 py-2 text-center text-slate-600"><p className="text-base font-bold">{pendingCount}</p><p className="text-[6px] font-bold uppercase tracking-widest opacity-70">Pend.</p></div>
+                <div className="bg-red-50 border border-red-100 rounded-xl px-1 py-2 text-center text-red-600"><p className="text-base font-bold">{rejectedCount}</p><p className="text-[6px] font-bold uppercase tracking-widest opacity-70">Rej.</p></div>
               </div>
-
-              {/* Dynamic bar chart based on bids over the last 7 days */}
-              <div className="mt-auto flex items-end justify-between h-36 px-2">
-                {last7DaysBids.map((dayData, i) => {
-                  const heightPercent = (dayData.count / maxBidCount) * 100;
-                  const isHighlight = i === 6; // Today
-                  const isDark = i % 2 !== 0 && !isHighlight;
-                  
-                  return (
-                    <div key={i} className="flex flex-col items-center gap-3 w-4 h-full relative group">
-                      <div className="w-full flex-1 bg-slate-50 rounded-full relative flex items-end overflow-hidden">
-                        <div
-                          className={`w-full rounded-full transition-all duration-500 ease-out 
-                          ${isHighlight ? 'bg-[#ffdd66]' : isDark ? 'bg-[#1a1a1a]' : 'bg-slate-200 group-hover:bg-slate-300'}`}
-                          style={{ height: `${Math.max(heightPercent, 10)}%` }}
-                        />
+              <div className="flex-1 space-y-2 pr-1 overflow-y-auto [&::-webkit-scrollbar]:hidden">
+                {allActivity.slice(0, 6).map((item, idx) => (
+                  <div key={idx} 
+                       className="flex items-center gap-3 py-3 border-b border-slate-50 last:border-0 px-2 rounded-xl">
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${
+                      ['accepted', 'approved'].includes(item.status?.toLowerCase()) ? 'bg-green-400' : 
+                      item.status?.toLowerCase() === 'shortlisted' ? 'bg-indigo-400' :
+                      item.status?.toLowerCase() === 'interview call' ? 'bg-purple-400' :
+                      item.status?.toLowerCase() === 'review' ? 'bg-orange-400' :
+                      item.status?.toLowerCase() === 'rejected' ? 'bg-red-400' : 'bg-[#ffdd66]'}`} />
+                    <div className="flex-1 min-w-0 flex justify-between items-center">
+                      <div className="flex flex-col min-w-0">
+                        <p className="text-sm font-semibold text-[#1a1a1a] truncate pr-2">{item.projects?.title || 'Project Activity'}</p>
+                        <p className="text-[8px] uppercase tracking-widest text-slate-400 font-bold">
+                          {item.activityType === 'received_app' ? 'Application' : item.activityType === 'received_bid' ? 'Incoming Bid' : 'Your Bid'}
+                        </p>
                       </div>
-                      <span className={`text-[10px] font-bold ${isHighlight ? 'text-[#1a1a1a]' : 'text-slate-400'}`}>{dayData.dayShort}</span>
-                      
-                      {/* Tooltip on hover */}
-                      <div className="absolute -top-10 scale-0 origin-bottom group-hover:scale-100 transition-transform bg-[#1a1a1a] text-[#ffdd66] text-[10px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap shadow-xl z-20">
-                        {dayData.count} Bids
-                      </div>
+                      <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md uppercase tracking-widest shrink-0">{item.status || 'Pending'}</span>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Right Column: Dark Modern List (Bids Tracker) */}
-            {/* <div className="col-span-1 bg-[#2c2c2e] rounded-[2rem] p-7 shadow-xl shadow-black/5 flex flex-col text-white h-[380px]">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-white font-semibold">Bids Received</h3>
-                <span className="text-4xl font-light tracking-tighter text-white/50">{Math.min(receivedBids.length, 5)}<span className="text-2xl">/{receivedBids.length}</span></span>
-              </div>
-
-              <div className="flex-1 overflow-y-auto overflow-x-hidden pr-2 space-y-2.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                {receivedBids.length > 0 ? receivedBids.map((bid, i) => {
-                  const isAccepted = bid.status === 'Accepted';
-                  // Lookup project name
-                  const project = projects.find(p => p.id === bid.project_id);
-
-                  return (
-                    <div key={bid.id} className="flex gap-4 group cursor-pointer hover:bg-white/5 rounded-2xl p-3 -mx-2 transition-colors">
-                      {(() => {
-                        const s = bid.status?.toLowerCase();
-                        const isSelected = ['accepted', 'approved', 'shortlisted'].includes(s);
-                        const isRejected = s === 'rejected';
-                        const isReview = s === 'review';
-
-                        let iconBoxCls = 'bg-white/10 text-white/60 border border-white/5';
-                        if (isSelected) iconBoxCls = 'bg-[#ffdd66] text-black';
-                        else if (isRejected) iconBoxCls = 'bg-red-500/20 text-red-400 border border-red-500/20';
-                        else if (isReview) iconBoxCls = 'bg-orange-500/20 text-orange-400 border border-orange-500/20';
-
-                        let textCls = 'text-white/50';
-                        if (isSelected) textCls = 'text-[#ffdd66]';
-                        else if (isRejected) textCls = 'text-red-400';
-                        else if (isReview) textCls = 'text-orange-400';
-
-                        return (
-                          <>
-                            <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 shadow-inner ${iconBoxCls}`}>
-                              {isSelected ? <Users className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
-                            </div>
-                            <div className="flex-1 min-w-0 flex flex-col justify-center">
-                              <h4 className="text-sm font-semibold text-white truncate group-hover:text-[#ffdd66] transition-colors">{project?.title || 'Unknown Role'}</h4>
-                              <p className={`text-[11px] mt-1 truncate tracking-wide font-bold uppercase ${textCls}`}>
-                                {bid.status || 'Pending Review'}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <span className="text-xs font-bold text-cyan-400 shrink-0">{bid.bid_amount}</span>
-                              <div className={`w-6 h-6 rounded-full flex items-center justify-center border transition-colors
-                                ${isSelected ? 'border-[#ffdd66] bg-[#ffdd66]'
-                                  : isRejected ? 'border-red-500/40' : 'border-white/20 group-hover:border-white/40'}`}>
-                                {isSelected && <CheckCircle className="w-3.5 h-3.5 text-black" />}
-                              </div>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  );
-                }) : (
-                  <div className="flex flex-col items-center justify-center h-full opacity-50">
-                    <Users className="w-8 h-8 mb-3 text-white/50" />
-                    <p className="text-sm font-medium">No bids incoming</p>
                   </div>
-                )}
+                ))}
               </div>
+            </div>
 
-              <div className="pt-4 mt-auto">
-                <button onClick={() => navigate('/projects')} className="w-full py-3.5 bg-white/5 hover:bg-white/10 transition-colors rounded-xl text-sm font-bold text-white tracking-wide border border-white/10">Manage Roles</button>
-              </div>
-            </div> */}
-
-            {/* NEW: My Bids Sent to Others (Dark Theme) */}
-            <div className="col-span-1 bg-[#2c2c2e] rounded-[2rem] p-7 shadow-xl shadow-black/5 flex flex-col text-white h-[380px] hover:shadow-2xl transition-shadow">
+            {/* Scheduled Interviews Card */}
+            <div className="col-span-1 bg-indigo-50/50 rounded-[2rem] p-7 shadow-sm border border-indigo-100/50 flex flex-col h-[420px]">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-white font-semibold">My Project Bids</h3>
-                <span className="text-sm font-bold text-white/50 capitalize">{bids.length} Submitted</span>
+                <h3 className="text-[#1a1a1a] font-bold text-base flex items-center gap-2"><CalendarIcon className="w-5 h-5 text-indigo-500" /> Mid-term Calls</h3>
+                <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-3 py-1 rounded-full">{incomingInterviews.length} Scheduled</span>
               </div>
-
-              <div className="flex-1 overflow-y-auto pr-2 space-y-3 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                {bids.length > 0 ? bids.map((bid) => (
-                  <div key={bid.id} className="p-4 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 transition-colors">
-                    <div className="flex justify-between items-start mb-2">
-                      <h4 className="text-sm font-bold text-white truncate pr-2 group-hover:text-[#ffdd66] transition-colors">{bid.projects?.title || 'Unknown Project'}</h4>
-                      <span className="text-xs font-bold text-cyan-400 shrink-0">{bid.bid_amount}</span>
-                    </div>
-                    <div className="flex items-center justify-between mt-3">
-                      <span className="text-[10px] font-bold text-white/50 uppercase tracking-widest flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> {bid.delivery_time}
-                      </span>
-                      <span className={`px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-wider border
-                        ${bid.status?.toLowerCase() === 'accepted' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/20' : 
-                          bid.status?.toLowerCase() === 'rejected' ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-blue-500/20 text-blue-400 border-blue-500/20'}`}>
-                        {bid.status}
-                      </span>
-                    </div>
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1 [&::-webkit-scrollbar]:hidden">
+                {incomingInterviews.length > 0 ? incomingInterviews.map(bid => (
+                  <div key={bid.id} className="bg-white p-4 rounded-2xl shadow-sm border border-indigo-50 hover:shadow-md transition-shadow">
+                    <p className="text-xs font-bold text-indigo-500 mb-1 uppercase tracking-widest">
+                      {bid.status?.toLowerCase() === 'interview call' ? 'Interview Scheduled' : 'Shortlisted'}
+                    </p>
+                    <h4 className="font-bold text-[#1a1a1a] text-sm leading-tight mb-2">{bid.projects?.title}</h4>
+                    {bid.interview_schedule_date_and_time ? (
+                      <div className="flex items-center gap-2 mt-2">
+                         <div className="bg-indigo-500 text-white p-1 rounded-md">
+                           <CalendarIcon className="w-3 h-3" />
+                         </div>
+                         <p className="text-[11px] font-bold text-slate-700">
+                           {new Date(bid.interview_schedule_date_and_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                         </p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500 font-medium italic">Awaiting scheduling from admin.</p>
+                    )}
                   </div>
                 )) : (
                   <div className="flex flex-col items-center justify-center h-full opacity-50">
-                    <Briefcase className="w-8 h-8 mb-3 text-white/50" />
-                    <p className="text-sm font-medium">No bids placed yet</p>
+                    <CalendarIcon className="w-8 h-8 mb-3 text-slate-400" />
+                    <p className="text-sm font-medium text-slate-500 text-center">No calls scheduled.<br/>Check back later!</p>
                   </div>
                 )}
-              </div>
-              
-              <div className="pt-4 mt-auto">
-                <button onClick={() => navigate('/projects')} className="w-full py-3.5 bg-white/5 text-white rounded-xl text-sm font-bold tracking-wide border border-white/10 hover:bg-white/10 transition-colors">Explore Projects</button>
               </div>
             </div>
 
           </div>
-        )
-        }
+        )}
 
+        {/* Bottom Analytics Section */}
+        {activeTab === 'overview' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="col-span-2 bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 flex flex-col group relative overflow-hidden h-[340px]">
+              <div className="absolute top-0 right-0 -mt-20 -mr-20 w-80 h-80 bg-[#ffdd66]/5 rounded-full blur-3xl opacity-50"></div>
+              <div className="mb-4">
+                <h3 className="text-[#1a1a1a] font-bold text-xl flex items-center gap-2 mb-2"><TrendingUp className="w-6 h-6 text-[#ffdd66]" /> Market Velocity</h3>
+                <p className="text-sm text-slate-500 max-w-lg leading-relaxed">Track your bidding performance and market demand for startups in the Oracle ecosystem.</p>
+              </div>
+              
+              <div className="flex-1 w-full -ml-8">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={last7DaysBids} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorBids" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ffdd66" stopOpacity={1}/>
+                        <stop offset="95%" stopColor="#ffdd66" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis 
+                      dataKey="dayShort" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#94a3b8', fontSize: 13, fontWeight: 700 }} 
+                      dy={10}
+                    />
+                    <YAxis hideDomain hide />
+                    <Tooltip 
+                      cursor={{ stroke: '#ffdd66', strokeWidth: 1, strokeDasharray: '4 4' }}
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-[#1a1a1a] text-white px-4 py-2 rounded-xl shadow-2xl border border-white/10 text-[11px] font-bold">
+                              {payload[0].value} Projects Applied
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="count" 
+                      stroke="#ccae4d" 
+                      strokeWidth={4}
+                      fillOpacity={1} 
+                      fill="url(#colorBids)" 
+                      animationDuration={1500}
+                      label={{ 
+                        position: 'top', 
+                        fill: '#1a1a1a', 
+                        fontSize: 11, 
+                        fontWeight: 800,
+                        offset: 10,
+                        formatter: (val: number) => val > 0 ? val : '' 
+                      }}
+                      dot={{ r: 4, fill: '#1a1a1a', strokeWidth: 2, stroke: '#ffdd66' }}
+                      activeDot={{ r: 6, fill: '#1a1a1a', strokeWidth: 2, stroke: 'white' }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
 
-      </div >
-    </div >
+            <div className="col-span-1 bg-[#1a1a1a] rounded-[2rem] p-8 shadow-2xl flex flex-col h-[340px] text-white overflow-hidden relative border border-white/5">
+              <div className="absolute -top-10 -right-10 w-40 h-40 bg-[#ffdd66]/10 rounded-full blur-3xl"></div>
+              <div className="mb-6">
+                <h3 className="font-bold text-xl mb-1">Project Efficiency</h3>
+                <p className="text-white/40 text-xs font-medium">Core performance metrics across your active stack.</p>
+              </div>
+              
+              <div className="space-y-8 flex-1 flex flex-col justify-center">
+                <div>
+                  <div className="flex justify-between text-[10px] font-black uppercase tracking-[0.2em] text-white/30 mb-3">
+                    <span>Active Projects</span>
+                    <span className="text-[#ffdd66]">{activeRate}%</span>
+                  </div>
+                  <div className="h-3 w-full bg-white/5 rounded-full overflow-hidden p-[2px] border border-white/5">
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: `${activeRate}%` }}
+                      transition={{ duration: 1.5, ease: "circOut" }}
+                      className="h-full bg-gradient-to-r from-[#ccae4d] to-[#ffdd66] rounded-full shadow-[0_0_10px_rgba(255,221,102,0.3)]" 
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <div className="flex justify-between text-[10px] font-black uppercase tracking-[0.2em] text-white/30 mb-3">
+                    <span>Hiring Momentum</span>
+                    <span className="text-blue-400">{hiringRate}%</span>
+                  </div>
+                  <div className="h-3 w-full bg-white/5 rounded-full overflow-hidden p-[2px] border border-white/5">
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: `${hiringRate}%` }}
+                      transition={{ duration: 1.5, ease: "circOut", delay: 0.2 }}
+                      className="h-full bg-gradient-to-r from-blue-600 to-blue-400 rounded-full shadow-[0_0_10px_rgba(96,165,250,0.3)]" 
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <button onClick={() => navigate('/projects')} className="mt-8 py-3.5 bg-white/5 hover:bg-white/10 border border-white/10 transition-all rounded-2xl text-[10px] font-black tracking-[0.2em] uppercase active:scale-95">
+                 Manage Portfolio
+              </button>
+            </div>
+          </div>
+        )}
+        
+      </div>
+    </div>
   );
 }

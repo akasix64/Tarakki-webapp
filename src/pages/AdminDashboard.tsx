@@ -7,13 +7,15 @@ import {
   Plus, Users, Briefcase, Activity, X, Check, Trash2,
   LayoutDashboard, FolderOpen, ChevronRight, Bell, Settings,
   UserCircle, Menu, TrendingUp, ShieldCheck, Phone, CreditCard, Mail,
-  MapPin, Globe, FileText, Building2, Calendar, Star, Hash, Search, SlidersHorizontal, ArrowRight
+  MapPin, Globe, FileText, Building2, Calendar, Star, Hash, Search, SlidersHorizontal, ArrowRight, Send
 } from 'lucide-react';
 import AdminAnalytics from '../components/AdminAnalytics';
 import AdminFinanceLogs from '../components/AdminFinanceLogs';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'projects' | 'users' | 'applications' | 'bids' | 'profile' | 'finance_logs'>('overview');
+  const [interviewModal, setInterviewModal] = useState<{ id: string, type: 'app' | 'bid', visible: boolean }>({ id: '', type: 'app', visible: false });
+  const [interviewDateTime, setInterviewDateTime] = useState('');
   const [stats, setStats] = useState({ contractors: 0, startups: 0, projects: 0, applications: 0, bids: 0 });
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [selectedApplication, setSelectedApplication] = useState<any>(null);
@@ -35,6 +37,8 @@ export default function AdminDashboard() {
     title: '', description: '', location: '', type: 'Contract', budget: '', tags: '', hourly_rate: '', monthly_rate: '', deadline: ''
   });
   const [loading, setLoading] = useState(true);
+  const [emailSending, setEmailSending] = useState<Record<string, boolean>>({});
+  const [emailSent, setEmailSent] = useState<Record<string, boolean>>({});
   
   // Profile Match Search State
   const [showUserFilters, setShowUserFilters] = useState(false);
@@ -56,7 +60,9 @@ export default function AdminDashboard() {
       }
 
       // 1. Check if email is admin email
-      const isAdminEmail = session.user.email === 'egisedge@tarakki.com' || session.user.email?.includes('egisedge');
+      const adminEmails = ['egisedge@tarakki.com', 'egisedge@gmail.com', 'anshukapil7770@gmail.com'];
+      const userEmail = (session.user.email || '').toLowerCase();
+      const isAdminEmail = adminEmails.some(e => e.toLowerCase() === userEmail) || userEmail.includes('egisedge');
       
       // 2. Check if user is in profiles table with admin role
       let isAdminRole = false;
@@ -66,7 +72,7 @@ export default function AdminDashboard() {
         .eq('id', session.user.id)
         .single();
       
-      if (profile && profile.role === 'admin') {
+      if (profile && profile.role?.toLowerCase() === 'admin') {
         isAdminRole = true;
       }
 
@@ -82,118 +88,157 @@ export default function AdminDashboard() {
     checkAdmin();
   }, [navigate]);
 
+  // ─── Caching & Hydration ──────────────────────────────────────────────────
+  const ADMIN_CACHE_KEY = 'admin_dashboard_cache_v2';
+
+  // Load from Cache on mount
+  useEffect(() => {
+    const cached = localStorage.getItem(ADMIN_CACHE_KEY);
+    if (cached) {
+      try {
+        const data = JSON.parse(cached);
+        if (data.stats) setStats(data.stats);
+        if (data.users) setUsers(data.users);
+        if (data.projects) setProjects(data.projects);
+        if (data.applications) setApplications(data.applications);
+        if (data.bids) setBids(data.bids);
+        if (data.notifications) setNotifications(data.notifications);
+        if (data.subscriptionLogs) setSubscriptionLogs(data.subscriptionLogs);
+        if (data.adminProfile) {
+           setAdminProfile(data.adminProfile);
+           setProfileForm({ full_name: data.adminProfile.full_name || '', phone: data.adminProfile.phone || '' });
+        }
+      } catch (e) { console.error("Admin Hydration Error:", e); }
+    }
+  }, []);
+
+  const saveToAdminCache = (update: any) => {
+    const current = JSON.parse(localStorage.getItem(ADMIN_CACHE_KEY) || '{}');
+    localStorage.setItem(ADMIN_CACHE_KEY, JSON.stringify({ ...current, ...update }));
+  };
+
   const fetchData = async () => {
     try {
       const profilesData = await fetchApi('/profiles');
       if (profilesData) {
         setUsers(profilesData);
-        setStats(prev => ({
-          ...prev,
+        const newStats = {
           contractors: profilesData.filter((p: any) => p.role === 'contractor').length,
           startups: profilesData.filter((p: any) => p.role === 'startup').length,
-        }));
+        };
+        setStats(prev => ({ ...prev, ...newStats }));
+        saveToAdminCache({ users: profilesData, stats: { ...stats, ...newStats } });
       }
 
       const projectsData = await fetchApi('/projects');
       if (projectsData) {
         setProjects(projectsData);
         setStats(prev => ({ ...prev, projects: projectsData.length }));
+        saveToAdminCache({ projects: projectsData, stats: { ...stats, projects: projectsData.length } });
       }
-
-      // Quick fetch just for stats (if not fetching all applications robustly here)
-      // fetchApplications will calculate deep stats anyway
-    } catch (err) {
-      console.error('Error fetching dashboard data:', err);
-    }
+    } catch (err) { console.error('Error fetching dashboard data:', err); }
   };
 
   const fetchApplications = async () => {
     setApplicationsLoading(true);
     try {
       const enriched = await fetchApi('/applications');
-      if (enriched && enriched.length > 0) {
+      if (enriched) {
         setApplications(enriched);
         setStats(prev => ({ ...prev, applications: enriched.length }));
-      } else {
-        setApplications([]);
-        setStats(prev => ({ ...prev, applications: 0 }));
+        saveToAdminCache({ applications: enriched, stats: { ...stats, applications: enriched.length } });
       }
-    } catch (err) {
-      console.error('Error fetching applications via API:', err);
-      setApplications([]);
-    } finally {
-      setApplicationsLoading(false);
-    }
+    } catch (err) { console.error('Error fetching applications:', err); }
+    finally { setApplicationsLoading(false); }
   };
 
   const fetchBids = async () => {
     setBidsLoading(true);
     try {
       const data = await fetchApi('/bids');
-      console.log('Bids Detailed Data Received:', data);
       if (data) {
         setBids(data);
         setStats(prev => ({ ...prev, bids: data.length }));
-      } else {
-        setBids([]);
-        setStats(prev => ({ ...prev, bids: 0 }));
+        saveToAdminCache({ bids: data, stats: { ...stats, bids: data.length } });
       }
-    } catch (err) {
-      console.error('Error fetching bids:', err);
-      setBids([]);
-    } finally {
-      setBidsLoading(false);
-    }
+    } catch (err) { console.error('Error fetching bids:', err); }
+    finally { setBidsLoading(false); }
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      const notifs = await fetchApi('/notifications');
+      if (notifs) {
+        setNotifications(notifs);
+        saveToAdminCache({ notifications: notifs });
+      }
+    } catch (err) { console.error('Error fetching notifications:', err); }
   };
 
   const fetchSubscriptionLogs = async () => {
     try {
       const logs = await fetchApi('/subscriptions/logs');
-      setSubscriptionLogs(logs || []);
+      if (logs) {
+        setSubscriptionLogs(logs);
+        saveToAdminCache({ subscriptionLogs: logs });
+      }
+    } catch (err) { console.error('Error fetching subscription logs:', err); }
+  };
+
+  const handleScheduleInterviewAdmin = async () => {
+    if (!interviewDateTime) {
+      alert('Please select a date and time');
+      return;
+    }
+    const { id, type } = interviewModal;
+    const path = type === 'app' ? `/applications/${id}/status` : `/bids/${id}/status`;
+    try {
+      await fetchApi(path, {
+        method: 'PUT',
+        body: JSON.stringify({ 
+          status: 'interview call', 
+          interview_schedule_date_and_time: interviewDateTime 
+        })
+      });
+      if (type === 'app') {
+        setApplications(prev => prev.map(a => a.id === id ? { ...a, status: 'interview call', interview_schedule_date_and_time: interviewDateTime } : a));
+      } else {
+        setBids(prev => prev.map(b => b.id === id ? { ...b, status: 'interview call', interview_schedule_date_and_time: interviewDateTime } : b));
+      }
+      setInterviewModal({ id: '', type: 'app', visible: false });
+      setInterviewDateTime('');
     } catch (err) {
-      console.error('Error fetching subscription logs:', err);
+      console.error('Update failed:', err);
+      alert('Failed to update status');
     }
   };
 
   useEffect(() => {
-    const fetchNotifications = async () => {
-      try {
-        const notifs = await fetchApi('/notifications');
-        setNotifications(notifs || []);
-      } catch (err) {
-        console.error('Error fetching notifications API:', err);
-      }
-    };
+    if (loading) return;
 
-    const fetchAdminData = async () => {
-      await Promise.all([
-        fetchData(),
-        fetchApplications(),
-        fetchBids(),
-        fetchNotifications(),
-        fetchSubscriptionLogs()
-      ]);
+    // 1. Initial background refresh
+    const refreshDashboard = async () => {
+      fetchData();
+      fetchApplications();
+      fetchBids();
+      fetchNotifications();
+      fetchSubscriptionLogs();
     };
-    fetchAdminData();
+    refreshDashboard();
 
-    // Fetch admin's own profile via Auth and API
+    // 2. Fetch admin profile
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
-        try {
-          const profile = await fetchApi(`/profiles/${session.user.id}`);
+        const profile = await fetchApi(`/profiles/${session.user.id}`);
+        if (profile) {
           setAdminProfile(profile);
           setProfileForm({ full_name: profile.full_name || '', phone: profile.phone || '' });
-        } catch (err) {
-          console.error('Admin profile API fetch error:', err);
-          // fallback: use session user metadata
-          const meta = session.user.user_metadata;
-          const fallback = { id: session.user.id, email: session.user.email, full_name: meta?.full_name || '', role: meta?.role || '', phone: '' };
-          setAdminProfile(fallback);
-          setProfileForm({ full_name: fallback.full_name, phone: '' });
+          saveToAdminCache({ adminProfile: profile });
         }
       }
     });
 
+    // 3. Real-time setup
     const ps = supabase.channel('profiles-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, fetchData).subscribe();
     const pj = supabase.channel('projects-changes')
@@ -208,11 +253,8 @@ export default function AdminDashboard() {
       if (session) {
         notifsChannel = supabase.channel('admin-notifications')
           .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${session.user.id}` }, () => {
-            // Re-fetch all notifications to ensure RLS is satisfied
-            fetchNotifications();
-          }).subscribe((status) => {
-            console.log('[Admin] Realtime subscription status:', status);
-          });
+             fetchNotifications();
+          }).subscribe();
       }
     });
 
@@ -223,7 +265,7 @@ export default function AdminDashboard() {
       supabase.removeChannel(pb);
       if (notifsChannel) supabase.removeChannel(notifsChannel);
     };
-  }, []);
+  }, [loading]);
 
   // Close notification panel when clicking outside
   useEffect(() => {
@@ -281,6 +323,28 @@ export default function AdminDashboard() {
       setIsEditingProfile(false);
     } catch (err) {
       alert('Failed to save profile: ' + (err as Error).message);
+    }
+  };
+
+  const handleSendEmailBlast = async (projectId: string, projectTitle: string) => {
+    if (!confirm(`Send email notification for "${projectTitle}" to all contractors and startups?`)) return;
+    
+    setEmailSending(prev => ({ ...prev, [projectId]: true }));
+    try {
+      const result = await fetchApi('/emails/send-project', {
+        method: 'POST',
+        body: JSON.stringify({ project_id: projectId })
+      });
+      
+      setEmailSent(prev => ({ ...prev, [projectId]: true }));
+      alert(`✅ Email sent successfully!\n\nSent: ${result.sent}\nFailed: ${result.failed}${result.errors?.length ? '\n\nErrors:\n' + result.errors.join('\n') : ''}`);
+      
+      // Reset sent status after 10 seconds
+      setTimeout(() => setEmailSent(prev => ({ ...prev, [projectId]: false })), 10000);
+    } catch (err) {
+      alert('❌ Failed to send emails: ' + (err as Error).message);
+    } finally {
+      setEmailSending(prev => ({ ...prev, [projectId]: false }));
     }
   };
 
@@ -664,9 +728,31 @@ export default function AdminDashboard() {
                             </div>
                           </td>
                           <td className="px-6 md:px-8 py-5">
-                            <button onClick={() => handleDeleteProject(p.id)} className="opacity-0 group-hover:opacity-100 p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button 
+                                onClick={() => handleSendEmailBlast(p.id, p.title)} 
+                                disabled={emailSending[p.id]}
+                                className={`opacity-0 group-hover:opacity-100 p-2 rounded-xl transition-all ${
+                                  emailSent[p.id] 
+                                    ? 'bg-green-500/20 text-green-400' 
+                                    : emailSending[p.id]
+                                      ? 'bg-[#ffdd66]/10 text-[#ffdd66] animate-pulse'
+                                      : 'bg-[#ffdd66]/10 text-[#ffdd66] hover:bg-[#ffdd66]/20'
+                                }`}
+                                title={emailSent[p.id] ? 'Email sent!' : 'Send email blast to all contractors & startups'}
+                              >
+                                {emailSending[p.id] ? (
+                                  <Activity className="w-4 h-4 animate-spin" />
+                                ) : emailSent[p.id] ? (
+                                  <Check className="w-4 h-4" />
+                                ) : (
+                                  <Send className="w-4 h-4" />
+                                )}
+                              </button>
+                              <button onClick={() => handleDeleteProject(p.id)} className="opacity-0 group-hover:opacity-100 p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -864,7 +950,7 @@ export default function AdminDashboard() {
                     <table className="min-w-full">
                       <thead>
                         <tr className="border-b border-white/10 bg-white/5">
-                          {['Applicant', 'Project', 'Cover Letter', 'Status', 'Date', 'Actions'].map(h => (
+                          {['Applicant', 'Project', 'Status', 'Interview', 'Date', 'Actions'].map(h => (
                             <th key={h} className="px-6 md:px-8 py-5 text-left text-[10px] font-bold uppercase tracking-widest text-white/50">{h}</th>
                           ))}
                         </tr>
@@ -886,16 +972,28 @@ export default function AdminDashboard() {
                             <td className="px-6 md:px-8 py-5">
                               <p className="text-sm font-semibold text-white/80">{app.projects?.title || 'Unknown Project'}</p>
                             </td>
-                            <td className="px-6 md:px-8 py-5 max-w-[200px]">
-                              <p className="text-xs text-white/50 line-clamp-2">{app.cover_letter || '—'}</p>
+                            <td className="px-6 md:px-8 py-5">
+                               {app.interview_schedule_date_and_time ? (
+                                 <div className="flex flex-col gap-1">
+                                   <div className="flex items-center gap-2 text-[10px] font-bold text-[#ffdd66]">
+                                     <Calendar className="w-3 h-3" /> 
+                                     {new Date(app.interview_schedule_date_and_time).toLocaleDateString()}
+                                   </div>
+                                   <div className="text-[9px] text-white/40 uppercase font-medium">
+                                     {new Date(app.interview_schedule_date_and_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                   </div>
+                                 </div>
+                               ) : (
+                                 <span className="text-white/20 text-[10px] italic">Not Scheduled</span>
+                               )}
                             </td>
                             <td className="px-6 md:px-8 py-5">
                               {(() => {
                                 const statusColors: Record<string, string> = {
                                   'approved': 'bg-green-500/10 text-green-400 border-green-500/20',
-                                  // 'approved': 'bg-green-500/10 text-green-400 border-green-500/20',
                                   'rejected': 'bg-red-500/10 text-red-400 border-red-500/20',
                                   'shortlisted': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                                  'interview call': 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
                                   'review': 'bg-orange-500/10 text-orange-400 border-orange-500/20',
                                   'pending': 'bg-[#ffdd66]/10 text-[#ffdd66] border border-[#ffdd66]/20'
                                 };
@@ -913,20 +1011,26 @@ export default function AdminDashboard() {
                               <select 
                                 value={app.status || 'pending'}
                                 onClick={(e) => e.stopPropagation()}
-                                onChange={async (e) => {
+                                onChange={(e) => {
                                   e.stopPropagation();
-                                  const newStatus = e.target.value;
-                                  // Optimistic update
-                                  setApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: newStatus } : a));
-                                  try {
-                                    await fetchApi(`/applications/${app.id}/status`, {
-                                      method: 'PUT',
-                                      body: JSON.stringify({ status: newStatus })
-                                    });
-                                  } catch (err) {
-                                    console.error('Update failed:', err);
-                                    fetchApplications(); // Revert on failure
-                                    alert('Failed to update: ' + (err as Error).message);
+                                  const val = e.target.value;
+                                  if (val === 'interview call') {
+                                    setInterviewModal({ id: app.id, type: 'app', visible: true });
+                                  } else {
+                                    (async () => {
+                                      // Optimistic update
+                                      setApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: val } : a));
+                                      try {
+                                        await fetchApi(`/applications/${app.id}/status`, {
+                                          method: 'PUT',
+                                          body: JSON.stringify({ status: val })
+                                        });
+                                      } catch (err) {
+                                        console.error('Update failed:', err);
+                                        fetchApplications(); // Revert
+                                        alert('Failed to update: ' + (err as Error).message);
+                                      }
+                                    })();
                                   }
                                 }}
                                 className="bg-black/40 border border-white/10 text-white text-[10px] font-bold uppercase tracking-widest rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#ffdd66] cursor-pointer"
@@ -935,6 +1039,7 @@ export default function AdminDashboard() {
                                 <option value="accepted">Accepted</option>
                                 <option value="shortlisted">Shortlisted</option>
                                 <option value="review">Application Review</option>
+                                <option value="interview call">Interview Call</option>
                                 <option value="rejected">Rejected</option>
                               </select>
                             </td>
@@ -977,7 +1082,7 @@ export default function AdminDashboard() {
                     <table className="min-w-full">
                       <thead>
                         <tr className="border-b border-white/10 bg-white/5">
-                          {['Startup ID', 'Project', 'Bid Info', 'Status', 'Date', 'Actions'].map(h => (
+                          {['Startup ID', 'Project', 'Bid Info', 'Status', 'Interview', 'Date', 'Actions'].map(h => (
                             <th key={h} className="px-6 md:px-8 py-5 text-left text-[10px] font-bold uppercase tracking-widest text-white/50">{h}</th>
                           ))}
                         </tr>
@@ -1005,12 +1110,28 @@ export default function AdminDashboard() {
                               <p className="text-[11px] text-white/50">{bid.delivery_time}</p>
                             </td>
                             <td className="px-6 md:px-8 py-5">
+                               {bid.interview_schedule_date_and_time ? (
+                                 <div className="flex flex-col gap-1">
+                                   <div className="flex items-center gap-2 text-[10px] font-bold text-[#ffdd66]">
+                                     <Calendar className="w-3 h-3" /> 
+                                     {new Date(bid.interview_schedule_date_and_time).toLocaleDateString()}
+                                   </div>
+                                   <div className="text-[9px] text-white/40 uppercase font-medium">
+                                     {new Date(bid.interview_schedule_date_and_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                   </div>
+                                 </div>
+                               ) : (
+                                 <span className="text-white/20 text-[10px] italic">Not Scheduled</span>
+                               )}
+                            </td>
+                            <td className="px-6 md:px-8 py-5">
                               {(() => {
                                 const statusColors: Record<string, string> = {
                                   'accepted': 'bg-green-500/10 text-green-400 border-green-500/20',
                                   'approved': 'bg-green-500/10 text-green-400 border-green-500/20',
                                   'rejected': 'bg-red-500/10 text-red-400 border-red-500/20',
                                   'shortlisted': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                                  'interview call': 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
                                   'review': 'bg-orange-500/10 text-orange-400 border-orange-500/20',
                                   'pending': 'bg-[#ffdd66]/10 text-[#ffdd66] border border-[#ffdd66]/20'
                                 };
@@ -1028,20 +1149,26 @@ export default function AdminDashboard() {
                               <select 
                                 value={bid.status || 'pending'}
                                 onClick={(e) => e.stopPropagation()}
-                                onChange={async (e) => {
+                                onChange={(e) => {
                                   e.stopPropagation();
-                                  const newStatus = e.target.value;
-                                  // Optimistic update
-                                  setBids(prev => prev.map(b => b.id === bid.id ? { ...b, status: newStatus } : b));
-                                  try {
-                                    await fetchApi(`/bids/${bid.id}/status`, {
-                                      method: 'PUT',
-                                      body: JSON.stringify({ status: newStatus })
-                                    });
-                                  } catch (err) {
-                                    console.error('Update failed:', err);
-                                    fetchBids(); // Revert on failure
-                                    alert('Failed to update: ' + (err as Error).message);
+                                  const val = e.target.value;
+                                  if (val === 'interview call') {
+                                    setInterviewModal({ id: bid.id, type: 'bid', visible: true });
+                                  } else {
+                                    (async () => {
+                                      // Optimistic update
+                                      setBids(prev => prev.map(b => b.id === bid.id ? { ...b, status: val } : b));
+                                      try {
+                                        await fetchApi(`/bids/${bid.id}/status`, {
+                                          method: 'PUT',
+                                          body: JSON.stringify({ status: val })
+                                        });
+                                      } catch (err) {
+                                        console.error('Update failed:', err);
+                                        fetchBids(); // Revert
+                                        alert('Failed to update: ' + (err as Error).message);
+                                      }
+                                    })();
                                   }
                                 }}
                                 className="bg-black/40 border border-white/10 text-white text-[10px] font-bold uppercase tracking-widest rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#ffdd66] cursor-pointer"
@@ -1050,6 +1177,7 @@ export default function AdminDashboard() {
                                 <option value="accepted">Accepted</option>
                                 <option value="shortlisted">Shortlisted</option>
                                 <option value="review">Under Review</option>
+                                <option value="interview call">Interview Call</option>
                                 <option value="rejected">Rejected</option>
                               </select>
                             </td>
@@ -1604,6 +1732,59 @@ export default function AdminDashboard() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Admin Interview Scheduling Form Modal */}
+      {interviewModal.visible && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-[3rem] shadow-2xl p-10 max-w-md w-full border border-white relative overflow-hidden"
+          >
+            {/* Background elements to match admin aesthetic */}
+            <div className="absolute -top-24 -right-24 w-48 h-48 bg-[#ffdd66]/10 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="relative z-10">
+              <h3 className="text-2xl font-black text-[#1a1a1a] mb-2 flex items-center gap-3">
+                <Calendar className="w-7 h-7 text-[#ffdd66]" /> Schedule {interviewModal.type === 'app' ? 'Application' : 'Bid'} Call
+              </h3>
+              <p className="text-sm text-slate-500 mb-8 font-medium">Set the formal interview date and time. This will notify the user and update their status to "Interview call".</p>
+              
+              <div className="space-y-6 mb-10">
+                <div className="relative group">
+                  <label className="block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2.5 pl-1">Choose Date & Time</label>
+                  <div className="relative">
+                    <input 
+                      type="datetime-local" 
+                      value={interviewDateTime}
+                      onChange={(e) => setInterviewDateTime(e.target.value)}
+                      className="w-full h-16 px-6 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-[#ffdd66]/20 focus:border-[#ffdd66] transition-all font-bold text-[#1a1a1a] appearance-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => {
+                    setInterviewModal({ id: '', type: 'app', visible: false });
+                    setInterviewDateTime('');
+                  }}
+                  className="flex-1 py-4 rounded-2xl bg-white border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50 transition-all"
+                >
+                  Discard
+                </button>
+                <button 
+                  onClick={handleScheduleInterviewAdmin}
+                  className="flex-1 py-4 rounded-2xl bg-[#1a1a1a] text-[#ffdd66] font-bold text-sm shadow-xl shadow-black/20 hover:-translate-y-1 active:translate-y-0 transition-all flex items-center justify-center gap-2"
+                >
+                  Confirm Call <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
         </div>
       )}
     </div>

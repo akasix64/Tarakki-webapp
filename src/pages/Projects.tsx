@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { Briefcase, MapPin, Clock, Search, SlidersHorizontal, ArrowRight, CheckCircle2, X, ChevronDown } from 'lucide-react';
+import { Briefcase, MapPin, Clock, Search, SlidersHorizontal, ArrowRight, CheckCircle2, X, ChevronDown, Bookmark, Users } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { fetchApi } from '../lib/api';
 
@@ -23,6 +23,35 @@ export default function Projects() {
 
   const activeFilterCount = selectedLocations.length + selectedTypes.length;
 
+  const [savedProjects, setSavedProjects] = useState<any[]>([]);
+
+  // Load saved projects on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('saved_projects');
+    if (saved) {
+      try { setSavedProjects(JSON.parse(saved)); } catch(e) {}
+    }
+  }, []);
+
+  const toggleSaveProject = (project: any) => {
+    let currentSaved = [...savedProjects];
+    const isSaved = currentSaved.find(p => p.id === project.id);
+    
+    if (isSaved) {
+      currentSaved = currentSaved.filter(p => p.id !== project.id);
+    } else {
+      currentSaved.push({
+        id: project.id,
+        title: project.title,
+        company_name: project.company,
+        location: project.location
+      });
+    }
+    
+    setSavedProjects(currentSaved);
+    localStorage.setItem('saved_projects', JSON.stringify(currentSaved));
+  };
+
   // Close filter panel when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -44,75 +73,76 @@ export default function Projects() {
     setSearchQuery('');
   };
 
+  // ── Caching & Hydration ──────────────────────────────────────────────────
+  const CACHE_KEY = 'projects_gallery_cache';
+
+  useEffect(() => {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) {
+      try {
+        const { projects, applications } = JSON.parse(cached);
+        if (projects) setProjects(projects);
+        if (applications) setApplications(applications);
+        setLoading(false); // Can show immediately if cached
+      } catch (e) {
+        console.error("Projects Cache Hydration Error:", e);
+      }
+    }
+  }, []);
+
+  const saveToCache = (data: any) => {
+    const current = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ...current, ...data }));
+  };
+
   // ── Data fetching ──────────────────────────────────────────────────────────
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) fetchApplicationsAndBids(session.user.id);
-    }).catch(err => console.error('Supabase connection error:', err));
+    let subscription: any = null;
 
-    const fetchApplicationsAndBids = async (userId: string) => {
-      try {
-        const appsData = await fetchApi('/applications');
-        const bidsData = await fetchApi('/bids');
-        
-        // Filter applications and bids for the current user
-        const myApps = (appsData || []).filter((a: any) => a.user_id === userId);
-        const myBids = (bidsData || []).filter((b: any) => b.user_id === userId);
-        
-        setApplications([...myApps, ...myBids]);
-      } catch (err) {
-        console.error('Error fetching applications and bids:', err);
-      }
-    };
+    const initData = async () => {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      setSession(currentSession);
 
-    const fetchProjects = async () => {
-      try {
-        // Try API first (works for authenticated users)
-        let data: any[] | null = null;
+      const fetchAppData = async () => {
+        if (!currentSession) return;
         try {
-          data = await fetchApi('/projects');
-        } catch {
-          // API failed (e.g. unauthenticated) — fall back to direct Supabase query
-          console.log('API fetch failed, falling back to direct Supabase query');
-        }
-
-        // Fallback: fetch directly from Supabase (works for public/anon access)
-        if (!data || data.length === 0) {
-          const { data: sbData, error } = await supabase
-            .from('projects')
-            .select('*')
-            .order('created_at', { ascending: false });
-          if (!error && sbData && sbData.length > 0) {
-            data = sbData;
-          }
-        }
-
-        if (data && data.length > 0) {
-          setProjects(data.map((p: any) => ({
-            ...p,
-            company: p.company || 'egisedge',
-            postedAt: new Date(p.created_at).toLocaleDateString()
-          })));
-        } else {
-          setProjects([
-            { id: 1, title: 'Oracle Cloud Infrastructure Migration', company: 'egisedge', location: 'Remote', type: 'Contract', postedAt: '2 days ago', description: 'Looking for an experienced Oracle DBA to migrate our on-premise databases to OCI.', tags: ['Oracle DBA', 'OCI', 'Migration'], budget: '₹50,000 - ₹80,000 / month' },
-            { id: 2, title: 'Oracle E-Business Suite Upgrade', company: 'egisedge', location: 'Hybrid', type: 'Project', postedAt: '1 week ago', description: 'Need a team to upgrade our Oracle EBS from 12.1 to 12.2. Startup teams preferred.', tags: ['Oracle EBS', 'Upgrade', 'ERP'], budget: '₹5,00,000 fixed' },
+          const [appsData, bidsData] = await Promise.all([
+            fetchApi('/applications'),
+            fetchApi('/bids')
           ]);
-        }
-      } catch (err) {
-        console.error('Error fetching projects:', err);
-      } finally {
-        setLoading(false);
-      }
+          const myCombined = [
+            ...(appsData || []).filter((a: any) => a.user_id === currentSession.user.id),
+            ...(bidsData || []).filter((b: any) => b.user_id === currentSession.user.id)
+          ];
+          setApplications(myCombined);
+          saveToCache({ applications: myCombined });
+        } catch (err) { console.error('Error fetching application states:', err); }
+      };
+
+      const fetchProjData = async () => {
+        try {
+          const projectsData = await fetchApi('/projects');
+          if (projectsData) {
+            setProjects(projectsData);
+            saveToCache({ projects: projectsData });
+          }
+        } catch (err) { console.error('Error fetching projects:', err); }
+        finally { setLoading(false); }
+      };
+
+      fetchProjData();
+      if (currentSession) fetchAppData();
+
+      subscription = supabase.channel('public:projects')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, fetchProjData)
+        .subscribe();
     };
 
-    fetchProjects();
+    initData();
 
-    const subscription = supabase.channel('public:projects')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, fetchProjects)
-      .subscribe();
-    return () => { supabase.removeChannel(subscription); };
+    return () => {
+      if (subscription) supabase.removeChannel(subscription);
+    };
   }, []);
 
   // ── Filtered projects ──────────────────────────────────────────────────────
@@ -148,11 +178,11 @@ export default function Projects() {
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto py-8">
+    <div className="w-full mx-auto py-8">
       <div className="fixed inset-x-0 top-16 bottom-0 overflow-y-auto font-sans selection:bg-[#ffdd66] selection:text-black" style={{ background: 'linear-gradient(135deg, #f8f9f4 0%, #f0ebd8 50%, #fefcf3 100%)' }}>
 
         {/* ── Top Navigation ──────────────────────────────────────────────── */}
-        <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
+        <div className="w-full max-w-[96%] mx-auto px-6 py-6 flex items-center justify-between">
           <div className="flex items-center gap-2 bg-white/60 backdrop-blur-md rounded-full p-1.5 shadow-sm border border-white/40">
             {session && (
               <button onClick={() => navigate('/dashboard')} className="px-6 py-2.5 rounded-full text-sm font-semibold text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a] transition-all">Dashboard</button>
@@ -164,7 +194,7 @@ export default function Projects() {
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 pb-20">
+        <div className="w-full max-w-[96%] mx-auto px-6 pb-20">
 
           {/* ── Header & Search ─────────────────────────────────────────────── */}
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-6 pt-4">
@@ -360,6 +390,13 @@ export default function Projects() {
                           Due: {new Date(project.deadline).toLocaleDateString()}
                         </span>
                       )}
+                      
+                      {project.applicant_count !== undefined && (
+                        <span className="flex items-center text-[#ffdd66] font-bold">
+                          <Users className="w-4 h-4 mr-1.5" />
+                          {project.applicant_count} applicant{project.applicant_count !== 1 ? 's' : ''}
+                        </span>
+                      )}
                     </div>
 
                     <p className="text-white/70 text-sm leading-relaxed mb-6 max-w-3xl">{project.description}</p>
@@ -374,6 +411,16 @@ export default function Projects() {
                   </div>
 
                   <div className="flex flex-col items-start md:items-end justify-between relative z-10 border-t md:border-t-0 md:border-l border-white/10 pt-6 md:pt-0 md:pl-8 min-w-[240px]">
+                    <div className="w-full flex justify-end mb-6">
+                       <button 
+                         onClick={() => toggleSaveProject(project)}
+                         className={`p-3 rounded-full backdrop-blur-md border transition-all shadow-sm ${savedProjects.find(p => p.id === project.id) ? 'bg-[#ffdd66] border-[#ffdd66] text-[#1a1a1a]' : 'bg-white/5 border-white/10 text-white hover:bg-white/20'}`}
+                         title={savedProjects.find(p => p.id === project.id) ? "Remove from saved" : "Save for later"}
+                       >
+                         <Bookmark className={`w-5 h-5 ${savedProjects.find(p => p.id === project.id) ? 'fill-current' : ''}`} />
+                       </button>
+                    </div>
+
                     <div className="mb-6 md:mb-0 flex flex-col items-start md:items-end w-full">
                       <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-white/40 mb-2">Compensation</p>
                       
@@ -408,16 +455,17 @@ export default function Projects() {
                         const applied = applications.find(a => String(a.project_id) === String(project.id));
                         if (applied) {
                           return (
-                            <button disabled className={`w-full h-14 rounded-full text-sm font-bold flex items-center justify-center gap-2 cursor-not-allowed border ${['accepted', 'approved'].includes(applied.status?.toLowerCase())
-                              ? 'bg-green-500/10 text-green-400 border-green-500/20'
-                              : applied.status?.toLowerCase() === 'rejected'
-                                ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                                : 'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20'
-                              }`}>
+                            <button disabled className={`w-full h-14 rounded-full text-sm font-bold flex items-center justify-center gap-2 cursor-not-allowed border ${
+                              ['accepted', 'approved'].includes(applied.status?.toLowerCase()) ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                              applied.status?.toLowerCase() === 'shortlisted' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' :
+                              applied.status?.toLowerCase() === 'interview call' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
+                              applied.status?.toLowerCase() === 'review' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
+                              applied.status?.toLowerCase() === 'rejected' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                              'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20'
+                            }`}>
                               <CheckCircle2 className="w-4 h-4 opacity-70" />
                               <span className="capitalize">
-                                {['accepted', 'approved'].includes(applied.status?.toLowerCase()) ? 'Accepted' :
-                                  applied.status?.toLowerCase() === 'rejected' ? 'Rejected' : 'Pending'}
+                                {applied.status || 'Pending'}
                               </span>
                             </button>
                           );

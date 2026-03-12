@@ -8,7 +8,9 @@ import {
     Search,
     Check,
     X,
-    UserCircle
+    UserCircle,
+    Calendar,
+    Clock
 } from 'lucide-react';
 
 export default function ManageApplications() {
@@ -16,6 +18,8 @@ export default function ManageApplications() {
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('All');
+    const [interviewModal, setInterviewModal] = useState<{ appId: string, visible: boolean }>({ appId: '', visible: false });
+    const [interviewDateTime, setInterviewDateTime] = useState('');
     const navigate = useNavigate();
 
     const fetchApplications = async () => {
@@ -37,19 +41,34 @@ export default function ManageApplications() {
         return () => { supabase.removeChannel(pa); };
     }, []);
 
-    const handleUpdateStatus = async (appId: string, newStatus: string) => {
+    const handleUpdateStatus = async (appId: string, newStatus: string, metadata?: any) => {
         try {
+            const body: any = { status: newStatus };
+            if (metadata) {
+                Object.assign(body, metadata);
+            }
+
             await fetchApi(`/applications/${appId}/status`, {
                 method: 'PUT',
-                body: JSON.stringify({ status: newStatus })
+                body: JSON.stringify(body)
             });
 
             // Optimistically update the local state
-            setApplications(prev => prev.map(a => a.id === appId ? { ...a, status: newStatus } : a));
+            setApplications(prev => prev.map(a => a.id === appId ? { ...a, status: newStatus, ...metadata } : a));
         } catch (err: any) {
             console.error(err);
             alert('Failed to update status: ' + err.message);
         }
+    };
+
+    const handleScheduleInterview = () => {
+        if (!interviewDateTime) {
+            alert('Please select a date and time');
+            return;
+        }
+        handleUpdateStatus(interviewModal.appId, 'interview call', { interview_schedule_date_and_time: interviewDateTime });
+        setInterviewModal({ appId: '', visible: false });
+        setInterviewDateTime('');
     };
 
     const avatar = (name: string, email: string) => {
@@ -135,7 +154,7 @@ export default function ManageApplications() {
                             <table className="min-w-full">
                                 <thead>
                                     <tr className="border-b border-slate-100 bg-slate-50/50">
-                                        {['Applicant', 'Project', 'Proposed Rate', 'Cover Letter', 'Status', 'Actions'].map(h => (
+                                        {['Applicant', 'Project', 'Proposed Rate', 'Status', 'Interview', 'Actions'].map(h => (
                                             <th key={h} className="px-6 py-5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400">{h}</th>
                                         ))}
                                     </tr>
@@ -178,42 +197,53 @@ export default function ManageApplications() {
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-5">
-                                                    <p className="text-xs text-slate-500 max-w-[250px] line-clamp-2" title={app.cover_letter}>
-                                                        {app.cover_letter || <span className="italic">No cover letter</span>}
-                                                    </p>
-                                                </td>
-                                                <td className="px-6 py-5">
-                                                    <span className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full ${app.status?.toLowerCase() === 'pending' ? 'bg-[#ffdd66]/20 text-[#1a1a1a] border border-[#ffdd66]/50' :
+                                                    <span className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full ${
+                                                        app.status?.toLowerCase() === 'pending' ? 'bg-[#ffdd66]/20 text-[#1a1a1a] border border-[#ffdd66]/50' :
                                                         app.status?.toLowerCase() === 'accepted' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
-                                                            'bg-slate-100 text-slate-600 border border-slate-200'
-                                                        }`}>
+                                                        app.status?.toLowerCase() === 'interview call' ? 'bg-blue-50 text-blue-600 border border-blue-200' :
+                                                        'bg-slate-100 text-slate-600 border border-slate-200'
+                                                    }`}>
                                                         {app.status || 'Pending'}
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-5">
-                                                    {app.status?.toLowerCase() === 'pending' && (
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                onClick={() => handleUpdateStatus(app.id, 'accepted')}
-                                                                className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-100 transition-colors"
-                                                                title="Accept Application"
-                                                            >
-                                                                <Check className="w-4 h-4" />
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleUpdateStatus(app.id, 'rejected')}
-                                                                className="w-8 h-8 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 transition-colors"
-                                                                title="Reject Application"
-                                                            >
-                                                                <X className="w-4 h-4" />
-                                                            </button>
+                                                    {app.interview_schedule_date_and_time ? (
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex items-center gap-2 text-xs font-bold text-[#1a1a1a]">
+                                                                <Calendar className="w-3 h-3 text-[#ffdd66]" /> 
+                                                                {new Date(app.interview_schedule_date_and_time).toLocaleDateString()}
+                                                            </div>
+                                                            <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                                                <Clock className="w-3 h-3" /> 
+                                                                {new Date(app.interview_schedule_date_and_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </div>
                                                         </div>
+                                                    ) : (
+                                                        <span className="text-slate-300 text-[10px] font-bold uppercase tracking-widest italic">Not Scheduled</span>
                                                     )}
-                                                    {app.status?.toLowerCase() !== 'pending' && (
-                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                                            Resolved
-                                                        </span>
-                                                    )}
+                                                </td>
+                                                <td className="px-6 py-5">
+                                                    <div className="flex items-center gap-2">
+                                                        <select 
+                                                            value={app.status?.toLowerCase() || 'pending'}
+                                                            onChange={(e) => {
+                                                                const val = e.target.value;
+                                                                if (val === 'interview call') {
+                                                                    setInterviewModal({ appId: app.id, visible: true });
+                                                                } else {
+                                                                    handleUpdateStatus(app.id, val);
+                                                                }
+                                                            }}
+                                                            className="bg-slate-100 border-none text-[10px] font-bold uppercase tracking-widest rounded-xl px-3 py-2 cursor-pointer focus:ring-2 focus:ring-[#ffdd66]/20"
+                                                        >
+                                                            <option value="pending">Pending</option>
+                                                            <option value="accepted">Accepted</option>
+                                                            <option value="shortlisted">Shortlisted</option>
+                                                            <option value="under review">Under Review</option>
+                                                            <option value="interview call">Interview Call</option>
+                                                            <option value="rejected">Rejected</option>
+                                                        </select>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ))
@@ -222,6 +252,43 @@ export default function ManageApplications() {
                             </table>
                         </div>
                     </div>
+
+                    {/* Interview Modal */}
+                    {interviewModal.visible && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-6">
+                            <div className="bg-white rounded-[2rem] shadow-2xl p-8 max-w-md w-full border border-white/20">
+                                <h3 className="text-2xl font-bold text-[#1a1a1a] mb-2 flex items-center gap-3">
+                                    <Calendar className="w-6 h-6 text-[#ffdd66]" /> Schedule Interview
+                                </h3>
+                                <p className="text-sm text-slate-500 mb-6 font-medium">Set the date and time for the interview call. The candidate will be notified immediately.</p>
+                                
+                                <div className="space-y-4 mb-8">
+                                    <label className="block text-[10px] font-bold uppercase tracking-widest text-[#1a1a1a]/60 mb-2 pl-2">Select Date & Time</label>
+                                    <input 
+                                        type="datetime-local" 
+                                        value={interviewDateTime}
+                                        onChange={(e) => setInterviewDateTime(e.target.value)}
+                                        className="w-full h-14 px-5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#ffdd66] transition-all"
+                                    />
+                                </div>
+
+                                <div className="flex gap-3">
+                                    <button 
+                                        onClick={() => setInterviewModal({ appId: '', visible: false })}
+                                        className="flex-1 py-4 rounded-2xl bg-slate-100 text-slate-600 font-bold text-sm hover:bg-slate-200 transition-all"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button 
+                                        onClick={handleScheduleInterview}
+                                        className="flex-1 py-4 rounded-2xl bg-[#1a1a1a] text-[#ffdd66] font-bold text-sm shadow-xl shadow-black/10 hover:-translate-y-1 transition-all"
+                                    >
+                                        Confirm Call
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                 </div>
             </div>

@@ -11,7 +11,15 @@ import {
   Bell,
   Search,
   Check,
-  X
+  X,
+  Bookmark,
+  Calendar,
+  TrendingUp,
+  FolderCheck,
+  CreditCard,
+  AlertCircle,
+  ChevronRight,
+  Zap
 } from 'lucide-react';
 
 import { fetchApi } from '../lib/api';
@@ -25,6 +33,15 @@ export default function ContractorDashboard() {
   const [isMatching, setIsMatching] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const [savedProjects, setSavedProjects] = useState<any[]>([]);
+
+  // Load saved projects from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('saved_projects');
+    if (saved) {
+      try { setSavedProjects(JSON.parse(saved)); } catch(e) {}
+    }
+  }, []);
 
   const isMemberActive = (p: any) => {
     if (!p?.is_member) return false;
@@ -38,42 +55,66 @@ export default function ContractorDashboard() {
 
   const isActive = isMemberActive(profile);
 
+  // ─── Caching & Hydration ──────────────────────────────────────────────────
+  const CACHE_KEY = `contractor_cache_${profile?.id || 'anonymous'}`;
+
+  // Initial Load from LocalStorage
+  useEffect(() => {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) {
+      try {
+        const { profile, applications, notifications } = JSON.parse(cached);
+        if (profile) setProfile(profile);
+        if (applications) setApplications(applications);
+        if (notifications) setNotifications(notifications);
+      } catch (e) { console.error("Cache Hydration Error:", e); }
+    }
+  }, [CACHE_KEY]);
+
+  const saveToCache = (data: any) => {
+    const current = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ...current, ...data }));
+  };
+
   useEffect(() => {
     let appsChannel: ReturnType<typeof supabase.channel> | null = null;
     let notifsChannel: ReturnType<typeof supabase.channel> | null = null;
 
-    (async () => {
+    const initDashboard = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
       const userId = session.user.id;
 
-      const fetchInitialData = async () => {
-        try {
-          const [profileData, appsData, notifsData] = await Promise.all([
-            fetchApi(`/profiles/${userId}`),
-            fetchApi('/applications'),
-            fetchApi('/notifications')
-          ]);
-          if (profileData) setProfile(profileData);
-          if (appsData) setApplications(appsData.filter((a: any) => a.user_id === userId));
-          if (notifsData) setNotifications(notifsData);
-        } catch (e) {
-          console.error("Error fetching initial data", e);
+      const fetchProfile = async () => {
+        const profileData = await fetchApi(`/profiles/${userId}`);
+        if (profileData) {
+          setProfile(profileData);
+          saveToCache({ profile: profileData });
         }
       };
 
       const fetchApplications = async () => {
         const appsData = await fetchApi('/applications');
-        if (appsData) setApplications(appsData.filter((a: any) => a.user_id === userId));
+        if (appsData) {
+          const myApps = appsData.filter((a: any) => a.user_id === userId);
+          setApplications(myApps);
+          saveToCache({ applications: myApps });
+        }
       };
 
       const fetchNotifs = async () => {
         const notifsData = await fetchApi('/notifications');
-        if (notifsData) setNotifications(notifsData);
+        if (notifsData) {
+          setNotifications(notifsData);
+          saveToCache({ notifications: notifsData });
+        }
       };
 
-      await fetchInitialData();
+      // Initial Refresh in background
+      fetchProfile();
+      fetchApplications();
+      fetchNotifs();
 
       // Real-time: refresh application counts whenever status changes
       appsChannel = supabase
@@ -82,13 +123,14 @@ export default function ContractorDashboard() {
           () => fetchApplications())
         .subscribe();
 
-      // Real-time: new notifications
       notifsChannel = supabase
-        .channel('notifs-contractor')
+        .channel('contractor-notifs-realtime')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
           () => fetchNotifs())
         .subscribe();
-    })();
+    };
+
+    initDashboard();
 
     return () => {
       if (appsChannel) supabase.removeChannel(appsChannel);
@@ -106,8 +148,20 @@ export default function ContractorDashboard() {
   const total = applications.length;
   const accepted = applications.filter(a => ['accepted', 'approved'].includes(a.status?.toLowerCase())).length;
   const shortlisted = applications.filter(a => a.status?.toLowerCase() === 'shortlisted').length;
+  const review = applications.filter(a => a.status?.toLowerCase() === 'review').length;
+  const interviews = applications.filter(a => a.status?.toLowerCase() === 'interview call').length;
   const rejected = applications.filter(a => a.status?.toLowerCase() === 'rejected').length;
-  const pending = applications.filter(a => !a.status || ['pending', 'review'].includes(a.status?.toLowerCase())).length;
+  const pending = applications.filter(a => !a.status || a.status?.toLowerCase() === 'pending').length;
+
+  const activeContracts = applications.filter(a => ['accepted', 'approved'].includes(a.status?.toLowerCase()));
+  const incomingInterviews = applications.filter(a => ['shortlisted', 'interview call'].includes(a.status?.toLowerCase()));
+  
+  // Market trends data based on Oracle Ecosystem
+  const marketTrends = [
+    { skill: 'Oracle OCI', demand: '+42%', projects: 124 },
+    { skill: 'Oracle Cloud ERP', demand: '+28%', projects: 89 },
+    { skill: 'NetSuite Admin', demand: '+15%', projects: 56 }
+  ];
 
   const handleAiMatch = async () => {
     if (!profile?.id) return;
@@ -132,11 +186,11 @@ export default function ContractorDashboard() {
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto py-8">
+    <div className="w-full mx-auto py-8">
       <div className="fixed inset-x-0 top-16 bottom-0 overflow-y-auto font-sans selection:bg-[#ffdd66] selection:text-black" style={{ background: 'linear-gradient(135deg, #f8f9f4 0%, #f0ebd8 50%, #fefcf3 100%)' }}>
 
         {/* ── Top Navigation Pill Bar ────────────────────────────────────────── */}
-        <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
+        <div className="w-full max-w-[96%] mx-auto px-6 py-6 flex items-center justify-between">
           <div className="flex items-center gap-2 bg-white/60 backdrop-blur-md rounded-full p-1.5 shadow-sm border border-white/40">
             <button className="px-6 py-2.5 rounded-full text-sm font-semibold bg-[#1a1a1a] text-white">Dashboard</button>
             <button onClick={() => navigate('/projects')} className="px-6 py-2.5 rounded-full text-sm font-semibold text-slate-500 hover:bg-white/50 hover:text-[#1a1a1a] transition-all">Projects</button>
@@ -199,7 +253,7 @@ export default function ContractorDashboard() {
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 pb-20">
+        <div className="w-full max-w-[96%] mx-auto px-6 pb-20">
 
           {/* ── Header & Big Stats ────────────────────────────────────────────── */}
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-10 pt-4">
@@ -219,15 +273,15 @@ export default function ContractorDashboard() {
               <div className="flex flex-col items-center">
                 <div className="flex items-center gap-2 text-5xl font-light tracking-tighter text-[#1a1a1a]">
                   <Clock className="w-6 h-6 text-[#ffdd66]" />
-                  {pending}
+                  {pending + review}
                 </div>
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">In Progress</span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">In Review</span>
               </div>
               <div className="flex flex-col items-center">
                 <div className="flex items-center gap-2 text-6xl font-light tracking-tighter text-[#1a1a1a]">
-                  {accepted + shortlisted}
+                  {accepted + shortlisted + interviews}
                 </div>
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Shortlisted / Offers</span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-2">Active Pursuits</span>
               </div>
             </div>
           </div>
@@ -236,11 +290,11 @@ export default function ContractorDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             <div className="col-span-1 md:col-span-3 bg-white/60 backdrop-blur-md rounded-full p-2 flex items-center border border-white/50 shadow-sm relative overflow-hidden h-14">
               <div className="relative z-10 flex gap-1 w-full h-full">
-                <div className="bg-[#1a1a1a] text-white text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(total > 0 ? Math.round(((accepted + shortlisted) / total) * 100) : 15, 15)}%` }}>
-                  Selected <span className="opacity-50 font-medium ml-auto">{accepted + shortlisted}</span>
+                <div className="bg-[#1a1a1a] text-white text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(total > 0 ? Math.round(((accepted + shortlisted + interviews) / total) * 100) : 15, 15)}%` }}>
+                  Engaged <span className="opacity-50 font-medium ml-auto">{accepted + shortlisted + interviews}</span>
                 </div>
-                <div className="bg-[#ffdd66] text-[#1a1a1a] text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(total > 0 ? Math.round((pending / total) * 100) : 15, 15)}%` }}>
-                  Pending <span className="opacity-50 font-medium ml-auto">{pending}</span>
+                <div className="bg-[#ffdd66] text-[#1a1a1a] text-xs font-semibold px-5 h-full rounded-full flex items-center gap-2 shadow-md transition-all whitespace-nowrap" style={{ width: `${Math.max(total > 0 ? Math.round(((pending + review) / total) * 100) : 15, 15)}%` }}>
+                  In Review <span className="opacity-50 font-medium ml-auto">{pending + review}</span>
                 </div>
                 <div className="bg-[#f8f9f4] border border-slate-100 text-[#1a1a1a] text-xs font-semibold px-5 h-full rounded-full flex items-center justify-between ml-auto shadow-inner whitespace-nowrap max-w-[140px]">
                   <span className="text-slate-500 mr-2">Output</span> <span>100%</span>
@@ -317,160 +371,220 @@ export default function ContractorDashboard() {
           </div>
 
           {/* ── Main Dashboard Grid ───────────────────────────────────────────── */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-            {/* Profile Photo Card — like reference image */}
-            <div className="lg:col-span-1 rounded-[2rem] shadow-2xl shadow-black/10 relative overflow-hidden h-[500px] group cursor-pointer" onClick={() => navigate('/profile')}>
-              {/* Big photo fills the card */}
-              {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt={profile?.full_name} className="absolute inset-0 w-full h-full object-cover object-top transition-transform duration-700 group-hover:scale-105" />
-              ) : (
-                /* Fallback: dark gradient card with big initial */
-                <div className="absolute inset-0 bg-[#1a1a1a] flex items-center justify-center">
-                  <div className="absolute -top-32 -right-32 w-80 h-80 bg-white/5 rounded-full blur-3xl" />
-                  <div className="absolute -bottom-32 -left-32 w-80 h-80 bg-[#ffdd66]/10 rounded-full blur-3xl" />
-                  <span className="text-[120px] font-light text-white/10 select-none leading-none">
-                    {(profile?.full_name || '?')[0].toUpperCase()}
-                  </span>
-                </div>
-              )}
-              {/* Gradient overlay at bottom */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-              {/* Name + Role chip */}
-              <div className="absolute bottom-0 left-0 right-0 p-6 z-10">
-                <h2 className="text-2xl font-bold text-white leading-tight mb-1">
-                  {profile?.full_name || 'Your Name'}
-                </h2>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-white/70">{profile?.skills?.[0] || 'Contractor'}</p>
-                  {profile?.experience_years && (
-                    <span className="px-4 py-1.5 rounded-full bg-[#ffdd66] text-[#1a1a1a] text-xs font-bold shadow-lg">
-                      {profile.experience_years} yrs exp
-                    </span>
+          {/* ── Dashboard Grid 1: Profile & Active Contracts ───────────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            
+            {/* Profile Photo Card - Redesigned to match Screenshot 1 */}
+            <div className="lg:col-span-1 bg-white rounded-[2rem] shadow-sm border border-slate-100 p-8 flex flex-col items-center h-auto min-h-[420px]">
+              
+              {/* Profile Image with 100% Progress Ring */}
+              <div className="relative w-32 h-32 mb-4">
+                <div className="absolute inset-0 rounded-full border-[3px] border-emerald-500" />
+                <div className="absolute inset-1 rounded-full overflow-hidden border-2 border-white shadow-md">
+                  {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt={profile?.full_name} className="w-full h-full object-cover object-top" />
+                  ) : (
+                    <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-400 text-3xl font-bold">
+                      {(profile?.full_name || '?')[0].toUpperCase()}
+                    </div>
                   )}
                 </div>
-              </div>
-              {/* "Add photo" hint if no photo */}
-              {!profile?.avatar_url && (
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                  <div className="w-14 h-14 rounded-full border-2 border-dashed border-white/40 flex items-center justify-center">
-                    <CheckCircle className="w-6 h-6 text-white/50" />
-                  </div>
-                  <p className="text-xs text-white/50 font-semibold tracking-wide">Add profile photo</p>
+                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white border border-slate-100 px-2.5 py-0.5 rounded-full shadow-sm text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
+                  100%
                 </div>
-              )}
+              </div>
+
+              <h2 className="text-xl font-bold text-[#1a1a1a] mb-1">{profile?.full_name || 'Your Name'}</h2>
+              <p className="text-sm text-slate-500 text-center leading-tight mb-4 px-4">
+                {profile?.skills?.[0] || 'Oracle Consultant'} @ {profile?.industry || 'Oracle Contracts'}
+              </p>
+              
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Last updated 1d ago</p>
+
+              <button 
+                onClick={() => navigate('/profile')}
+                className="w-full py-3 px-6 bg-[#4477ff] text-white rounded-full font-bold text-sm shadow-lg shadow-blue-500/20 hover:bg-blue-600 hover:-translate-y-0.5 transition-all mb-8"
+              >
+                View profile
+              </button>
+
             </div>
 
-
-            {/* Center Column: Velocity / Analytics Chart */}
-            <div className="col-span-1 bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 flex flex-col h-[500px] hover:shadow-md transition-shadow">
-              <div className="flex justify-between items-start mb-6">
-                <h3 className="text-[#1a1a1a] font-semibold text-lg">Activities</h3>
-                <button className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-400 hover:text-black hover:border-slate-300 hover:bg-slate-50 transition-all">
-                  <ArrowRight className="w-4 h-4 -rotate-45" />
-                </button>
+            {/* Active Contracts Card */}
+            <div className="lg:col-span-2 bg-[#1a1a1a] rounded-[2rem] p-7 shadow-xl shadow-black/5 flex flex-col text-white h-[420px] border border-white/5 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none"><FolderCheck className="w-48 h-48" /></div>
+              <div className="flex justify-between items-center mb-6 relative z-10">
+                <h3 className="text-white font-bold text-lg flex items-center gap-2"><CreditCard className="w-5 h-5 text-[#ffdd66]" /> Active Contracts & Projects</h3>
+                <span className="text-3xl font-light tracking-tighter text-white/30">{activeContracts.length}</span>
               </div>
-
-              <div className="flex items-end gap-3 mb-10">
-                <span className="text-6xl font-light tracking-tighter text-[#1a1a1a] leading-none">+{total}</span>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest leading-tight mb-1.5 flex flex-col gap-0.5"><span>Applied</span><span>This Week</span></span>
-              </div>
-
-              {/* Decorative bar chart imitating the ref image */}
-              <div className="mt-auto flex items-end justify-between h-36 px-2">
-                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => {
-                  const heights = [20, 60, 40, 80, 100, 30, 10];
-                  const isHighlight = i === 4;
-                  const isDark = i % 2 !== 0 && !isHighlight;
-                  return (
-                    <div key={i} className="flex flex-col items-center gap-3 w-4 h-full">
-                      <div className="w-full flex-1 bg-slate-50 rounded-full relative flex items-end overflow-hidden group">
-                        <div
-                          className={`w-full rounded-full transition-all duration-500 ease-out 
-                          ${isHighlight ? 'bg-[#ffdd66]' : isDark ? 'bg-[#1a1a1a]' : 'bg-slate-200 group-hover:bg-slate-300'}`}
-                          style={{ height: `${heights[i]}%` }}
-                        />
+              
+              <div className="flex-1 overflow-y-auto space-y-3 relative z-10 pr-2">
+                {activeContracts.length > 0 ? activeContracts.map(app => (
+                  <div key={app.id} className="bg-white/5 border border-white/10 p-4 rounded-2xl hover:bg-white/10 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <h4 className="font-bold text-white text-base">{app.projects?.title || 'Unknown Project'}</h4>
+                      <div className="flex items-center gap-3 mt-1.5 opacity-60 text-xs font-medium">
+                        <span className="flex items-center gap-1"><MapPin className="w-3 h-3"/> {app.projects?.location || 'Remote'}</span>
+                        <span>•</span>
+                        <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> Ongoing</span>
                       </div>
-                      <span className={`text-[10px] font-bold ${isHighlight ? 'text-[#1a1a1a]' : 'text-slate-400'}`}>{day}</span>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Right Column: My Applications Status */}
-            <div className="col-span-1 bg-[#1a1a1a] rounded-[2rem] p-7 shadow-xl shadow-black/5 flex flex-col text-white h-[500px] border border-white/5">
-              <div className="flex justify-between items-center mb-5">
-                <h3 className="text-white font-bold text-base">My Applications</h3>
-                <span className="text-3xl font-light tracking-tighter text-white/30">{total}</span>
-              </div>
-
-              {/* Stats row */}
-              <div className="flex gap-2 mb-4">
-                <div className="flex-1 bg-green-500/10 border border-green-500/20 rounded-xl px-3 py-2 text-center">
-                  <p className="text-lg font-bold text-green-400">{accepted}</p>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-green-400/70">Approved</p>
-                </div>
-                <div className="flex-1 bg-[#ffdd66]/10 border border-[#ffdd66]/20 rounded-xl px-3 py-2 text-center">
-                  <p className="text-lg font-bold text-[#ffdd66]">{pending}</p>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#ffdd66]/70">Pending</p>
-                </div>
-                <div className="flex-1 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2 text-center">
-                  <p className="text-lg font-bold text-red-400">{rejected}</p>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-red-400/70">Rejected</p>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto overflow-x-hidden pr-1 space-y-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                {applications.length > 0 ? applications.map((app) => {
-                  const s = app.status?.toLowerCase();
-                  const isApproved = s === 'accepted' || s === 'approved';
-                  const isRejected = s === 'rejected';
-                  const isPending = !s || s === 'pending';
-                  return (
-                    <div key={app.id} className="flex items-center gap-3 bg-white/5 hover:bg-white/8 rounded-2xl px-4 py-3 transition-colors">
-                      {/* Status dot */}
-                      {(() => {
-                        const status = app.status?.toLowerCase();
-                        let dotColor = 'bg-[#ffdd66]'; // default pending
-                        if (['accepted', 'approved'].includes(status)) dotColor = 'bg-green-400';
-                        else if (status === 'shortlisted') dotColor = 'bg-blue-400';
-                        else if (status === 'rejected') dotColor = 'bg-red-400';
-                        else if (status === 'review') dotColor = 'bg-orange-400';
-
-                        let badgeCls = 'bg-[#ffdd66]/10 text-[#ffdd66] border-[#ffdd66]/20';
-                        if (['accepted', 'approved'].includes(status)) badgeCls = 'bg-green-500/10 text-green-400 border-green-500/20';
-                        else if (status === 'shortlisted') badgeCls = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
-                        else if (status === 'rejected') badgeCls = 'bg-red-500/10 text-red-400 border-red-500/20';
-                        else if (status === 'review') badgeCls = 'bg-orange-500/10 text-orange-400 border-orange-500/20';
-
-                        return (
-                          <>
-                            <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`} />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-white truncate">{app.projects?.title || 'Unknown Project'}</p>
-                              <p className="text-[10px] text-white/40 mt-0.5">
-                                {app.created_at ? new Date(app.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                              </p>
-                            </div>
-                            <span className={`text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border shrink-0 ${badgeCls}`}>
-                              {app.status || 'Pending'}
-                            </span>
-                          </>
-                        );
-                      })()}
+                    <div className="flex items-center gap-4 bg-black/20 px-4 py-2 rounded-xl border border-white/5">
+                      <div className="text-right">
+                        <p className="text-xs text-white/50 uppercase tracking-widest font-bold">Client</p>
+                        <p className="text-sm font-semibold text-[#ffdd66]">{app.projects?.company_name || 'Confidential'}</p>
+                      </div>
                     </div>
-                  );
-                }) : (
+                  </div>
+                )) : (
                   <div className="flex flex-col items-center justify-center h-full opacity-40">
-                    <Search className="w-8 h-8 mb-3 text-white/50" />
-                    <p className="text-sm font-medium">No applications yet</p>
+                    <FolderCheck className="w-8 h-8 mb-3 text-white/50" />
+                    <p className="text-sm font-medium">No active contracts yet</p>
                   </div>
                 )}
               </div>
+            </div>
+          </div>
 
-              <div className="pt-4 mt-auto">
-                <button onClick={() => navigate('/projects')} className="w-full py-3 bg-white/5 hover:bg-white/10 transition-colors rounded-xl text-sm font-bold text-white tracking-wide border border-white/10">Browse Projects</button>
+          {/* ── Dashboard Grid 2: Applications, Interviews, Saved ──────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            
+            {/* My Applications */}
+            <div className="col-span-1 bg-white rounded-[2rem] p-7 shadow-sm border border-slate-100 flex flex-col h-[400px]">
+              <div className="flex justify-between items-center mb-5">
+                <h3 className="text-[#1a1a1a] font-bold text-base">Application Status</h3>
+                <span className="text-3xl font-light tracking-tighter text-slate-200">{total}</span>
+              </div>
+              <div className="grid grid-cols-6 gap-1.5 mb-4">
+                <div className="bg-green-50 border border-green-100 rounded-xl px-1 py-2 text-center text-green-600"><p className="text-base font-bold">{accepted}</p><p className="text-[6px] font-bold uppercase tracking-widest opacity-70">Appr.</p></div>
+                <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-1 py-2 text-center text-indigo-600"><p className="text-base font-bold">{shortlisted}</p><p className="text-[6px] font-bold uppercase tracking-widest opacity-70">Short.</p></div>
+                <div className="bg-purple-50 border border-purple-100 rounded-xl px-1 py-2 text-center text-purple-600"><p className="text-base font-bold">{interviews}</p><p className="text-[6px] font-bold uppercase tracking-widest opacity-70">Call</p></div>
+                <div className="bg-orange-50 border border-orange-100 rounded-xl px-1 py-2 text-center text-orange-600"><p className="text-base font-bold">{review}</p><p className="text-[6px] font-bold uppercase tracking-widest opacity-70">Rev.</p></div>
+                <div className="bg-slate-50 border border-slate-100 rounded-xl px-1 py-2 text-center text-slate-600"><p className="text-base font-bold">{pending}</p><p className="text-[6px] font-bold uppercase tracking-widest opacity-70">Pend.</p></div>
+                <div className="bg-red-50 border border-red-100 rounded-xl px-1 py-2 text-center text-red-600"><p className="text-base font-bold">{rejected}</p><p className="text-[6px] font-bold uppercase tracking-widest opacity-70">Rej.</p></div>
+              </div>
+              <div className="flex-1 space-y-2 pr-1">
+                {applications.slice(0, 4).map(app => (
+                  <div key={app.id} 
+                       onClick={() => navigate(`/apply/${app.project_id}`)}
+                       className="flex items-center gap-3 py-3 border-b border-slate-50 last:border-0 cursor-pointer hover:bg-slate-50 px-2 rounded-xl transition-colors">
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${
+                      ['accepted', 'approved'].includes(app.status?.toLowerCase()) ? 'bg-green-400' : 
+                      app.status?.toLowerCase() === 'shortlisted' ? 'bg-indigo-400' :
+                      app.status?.toLowerCase() === 'interview call' ? 'bg-purple-400' :
+                      app.status?.toLowerCase() === 'review' ? 'bg-orange-400' :
+                      app.status?.toLowerCase() === 'rejected' ? 'bg-red-400' : 'bg-[#ffdd66]'}`} />
+                    <div className="flex-1 min-w-0 flex justify-between items-center">
+                      <p className="text-sm font-semibold text-[#1a1a1a] truncate pr-4">{app.projects?.title}</p>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{app.status || 'Pending'}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Upcoming Interviews */}
+            <div className="col-span-1 bg-indigo-50/50 rounded-[2rem] p-7 shadow-sm border border-indigo-100/50 flex flex-col h-[400px]">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-[#1a1a1a] font-bold text-base flex items-center gap-2"><Calendar className="w-5 h-5 text-indigo-500" /> Interviews</h3>
+                <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-3 py-1 rounded-full">{incomingInterviews.length} Scheduled</span>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                {incomingInterviews.length > 0 ? incomingInterviews.map(app => (
+                  <div key={app.id} className="bg-white p-4 rounded-2xl shadow-sm border border-indigo-50 hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/apply/${app.project_id}`)}>
+                    <p className="text-xs font-bold text-indigo-500 mb-1 uppercase tracking-widest">
+                      {app.status?.toLowerCase() === 'interview call' ? 'Interview Scheduled' : 'Shortlisted'}
+                    </p>
+                    <h4 className="font-bold text-[#1a1a1a] text-sm leading-tight mb-2">{app.projects?.title}</h4>
+                    {app.interview_schedule_date_and_time ? (
+                      <div className="flex items-center gap-2 mt-2">
+                         <div className="bg-indigo-500 text-white p-1 rounded-md">
+                           <Calendar className="w-3 h-3" />
+                         </div>
+                         <p className="text-[11px] font-bold text-slate-700">
+                           {new Date(app.interview_schedule_date_and_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                         </p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500 font-medium italic">Awaiting scheduling from client.</p>
+                    )}
+                  </div>
+                )) : (
+                  <div className="flex flex-col items-center justify-center h-full opacity-50">
+                    <Calendar className="w-8 h-8 mb-3 text-slate-400" />
+                    <p className="text-sm font-medium text-slate-500 text-center">No interviews scheduled yet.<br/>Keep applying!</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Saved Projects */}
+            <div className="col-span-1 bg-white rounded-[2rem] p-7 shadow-sm border border-slate-100 flex flex-col h-[400px]">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-[#1a1a1a] font-bold text-base flex items-center gap-2"><Bookmark className="w-5 h-5 text-emerald-500" /> Saved</h3>
+                <span className="text-sm font-semibold text-slate-400">{savedProjects.length}</span>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                {savedProjects.length > 0 ? savedProjects.map((proj: any) => (
+                  <div key={proj.id} className="group p-3 -mx-2 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => navigate(`/apply/${proj.id}`)}>
+                    <h4 className="font-bold text-[#1a1a1a] text-sm group-hover:text-emerald-600 transition-colors">{proj.title}</h4>
+                    <p className="text-xs text-slate-500 mt-1">{proj.company_name} • {proj.location}</p>
+                  </div>
+                )) : (
+                  <div className="flex flex-col items-center justify-center h-full opacity-50">
+                    <Bookmark className="w-8 h-8 mb-3 text-slate-400" />
+                    <p className="text-sm font-medium text-slate-500 text-center">You haven't saved any<br/>projects for later.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+
+          {/* ── Dashboard Grid 3: Market Trends & Activity Chart ───────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Skill Gap & Market Trends */}
+            <div className="col-span-2 bg-[#f8f9f4] rounded-[2rem] p-8 shadow-sm border border-[#e2e4d8] flex flex-col group relative overflow-hidden">
+              <div className="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-[#ffdd66]/20 rounded-full blur-3xl opacity-50"></div>
+              <div className="flex justify-between items-center mb-6 relative z-10">
+                <h3 className="text-[#1a1a1a] font-bold text-lg flex items-center gap-2"><TrendingUp className="w-5 h-5 text-[#ffdd66]" /> Skill Gap & Market Demand</h3>
+              </div>
+              <p className="text-sm text-slate-600 mb-6 max-w-lg relative z-10">Based on recent project postings on Oracle Contracts, these Oracle skills are currently in high demand. Adding these to your profile can unlock more matching opportunities.</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-auto relative z-10">
+                {marketTrends.map((trend, i) => (
+                  <div key={i} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 hover:-translate-y-1 transition-transform cursor-default">
+                    <span className="text-emerald-500 text-sm font-bold bg-emerald-50 px-2.5 py-1 rounded-full">{trend.demand}</span>
+                    <h4 className="text-base font-bold text-[#1a1a1a] mt-3">{trend.skill}</h4>
+                    <p className="text-xs font-semibold text-slate-400 mt-1 uppercase tracking-widest">{trend.projects} Active Roles</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Activities Chart */}
+            <div className="col-span-1 bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 flex flex-col h-full">
+              <div className="flex justify-between items-start mb-6">
+                <h3 className="text-[#1a1a1a] font-bold text-base">Application Velocity</h3>
+              </div>
+              <div className="flex items-end gap-3 mb-6">
+                <span className="text-5xl font-light tracking-tighter text-[#1a1a1a] leading-none">+{total}</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-tight mb-1 flex flex-col gap-0.5"><span>This</span><span>Week</span></span>
+              </div>
+              <div className="mt-auto flex items-end justify-between h-28 px-2">
+                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => {
+                  const heights = [20, 60, 40, 80, 100, 30, 10];
+                  const isHighlight = i === 4;
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-2 w-4 h-full">
+                      <div className="w-full flex-1 bg-slate-50 rounded-full relative flex items-end overflow-hidden">
+                        <div className={`w-full rounded-full transition-all duration-500 ${isHighlight ? 'bg-[#ffdd66]' : 'bg-slate-200'}`} style={{ height: `${heights[i]}%` }} />
+                      </div>
+                      <span className={`text-[9px] font-bold ${isHighlight ? 'text-[#1a1a1a]' : 'text-slate-400'}`}>{day}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

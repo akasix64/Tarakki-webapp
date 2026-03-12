@@ -20,8 +20,11 @@ export default function Dashboard() {
         return;
       }
 
-      // Check if user is admin (egisedge)
-      if (session.user.email === 'egisedge@tarakki.com' || session.user.email?.includes('egisedge')) {
+      // Check if user is admin (by email or profile role)
+      const adminEmails = ['egisedge@tarakki.com', 'egisedge@gmail.com', 'anshukapil7770@gmail.com'];
+      const userEmail = (session.user.email || '').toLowerCase();
+      const isAdmin = adminEmails.some(e => e.toLowerCase() === userEmail) || userEmail.includes('egisedge');
+      if (isAdmin) {
         setRole('admin');
         setLoading(false);
         return;

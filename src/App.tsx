@@ -17,6 +17,11 @@ import Bids from './pages/Bids';
 import ManageApplications from './pages/ManageApplications';
 import Subscription from './pages/Subscription';
 import AdminDashboard from './pages/AdminDashboard';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import RefundPolicy from './pages/RefundPolicy';
+import TermsAndConditions from './pages/TermsAndConditions';
+import Disclaimer from './pages/Disclaimer';
+import ContactUs from './pages/ContactUs';
 
 export default function App() {
   return (
@@ -35,6 +40,11 @@ export default function App() {
           <Route path="profile" element={<Profile />} />
           <Route path="subscription" element={<Subscription />} />
           <Route path="admin" element={<AdminDashboard />} />
+          <Route path="privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="refund-policy" element={<RefundPolicy />} />
+          <Route path="terms" element={<TermsAndConditions />} />
+          <Route path="disclaimer" element={<Disclaimer />} />
+          <Route path="contact" element={<ContactUs />} />
         </Route>
       </Routes>
     </BrowserRouter>
